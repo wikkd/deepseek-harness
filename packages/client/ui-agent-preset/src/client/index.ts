@@ -34,7 +34,6 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { AgentPresetLabel } from './AgentPresetLabel.tsx'
-import { CreatePluginMenuItem } from './CreatePluginMenuItem.tsx'
 import type { AgentPresetLabelInjected } from './AgentPresetLabel.tsx'
 import { AgentPresetSeat } from './AgentPresetSeat.tsx'
 import type { AgentPresetSeatInjected } from './AgentPresetSeat.tsx'
@@ -227,16 +226,9 @@ export function apply(ctx: ClientContext): void {
       }
     }, 'ui-agent-preset: new-session chip and header label')
 
-    scope.slots.inject('plugins.add.actions', () => scope.slots.register({
-      name: 'plugins.add.actions',
-      id: 'create-plugin',
-      locale: 'settings.agentPreset',
-      inject: () => ({
-        hooks: { agentPresets: controller.store },
-        load: () => controller.load(),
-        startCreatorDraft,
-      }),
-    }, CreatePluginMenuItem))
+    // The fork does not register the Add-plugin Creator entry: the consumer
+    // product locks the roster to its three declared modes (2026-10-06 user
+    // directive), so no conversation path may author new presets or plugins.
   })
 
   /** Capture the exact blank Session one Settings action may update. */

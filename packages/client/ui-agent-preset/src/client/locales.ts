@@ -13,6 +13,12 @@ export type AgentPresetSettingsKey =
   | 'sectionIntro'
   | 'setDefault'
   | 'view'
+  | 'presetAssistantName'
+  | 'presetAssistantDescription'
+  | 'presetCodingName'
+  | 'presetCodingDescription'
+  | 'presetCreativeName'
+  | 'presetCreativeDescription'
   | 'presetStandardName'
   | 'presetStandardDescription'
   | 'presetPtcName'
@@ -38,7 +44,7 @@ export type AgentPresetSettingsKey =
 export const en: Record<AgentPresetSettingsKey, string> = {
   ...guideEn,
   builtInGroup: 'Built-in', customGroup: 'Custom',
-  sectionIntro: 'Choose the agent’s tools and how it works. Use Standard mode for everyday tasks, or Creator mode to add capabilities to DSH.',
+  sectionIntro: 'Choose how Xiaoyuan works: Office mode for everyday tasks, coding mode for development, Creative mode for ideas and artwork.',
 
   seatHint: 'Choose the agent preset for your new task',
   headerHint: 'The agent preset chosen when this task started',
@@ -46,6 +52,13 @@ export const en: Record<AgentPresetSettingsKey, string> = {
 
   setDefault: 'Set as new task default',
   view: 'View configuration',
+
+  presetAssistantName: '办公模式',
+  presetAssistantDescription: '写文档、做总结、整理资料、翻译润色——把日常事务办妥。',
+  presetCodingName: 'coding模式',
+  presetCodingDescription: '写代码、改 bug、跑命令——懂技术的搭档。',
+  presetCreativeName: '创意模式',
+  presetCreativeDescription: '画画、写故事、头脑风暴——把点子变成作品。',
 
   presetStandardName: 'Standard mode',
   presetStandardDescription:
@@ -83,7 +96,7 @@ export const en: Record<AgentPresetSettingsKey, string> = {
 export const zh: Record<AgentPresetSettingsKey, string> = {
   ...guideZh,
   builtInGroup: '内置', customGroup: '自定义',
-  sectionIntro: '选择 Agent 的工具和工作方式。日常任务用「标准模式」，扩展 DSH 的能力用「创造模式」。',
+  sectionIntro: '选择小圆的工作方式：日常事务用「办公模式」，写代码用「coding模式」，画画和创意用「创意模式」。',
 
   seatHint: '选择新任务使用的 Agent 预设',
   headerHint: '本任务的 Agent 预设，在任务开始时确定',
@@ -91,6 +104,13 @@ export const zh: Record<AgentPresetSettingsKey, string> = {
 
   setDefault: '设为新任务默认',
   view: '查看配置',
+
+  presetAssistantName: '办公模式',
+  presetAssistantDescription: '写文档、做总结、整理资料、翻译润色——把日常事务办妥。',
+  presetCodingName: 'coding模式',
+  presetCodingDescription: '写代码、改 bug、跑命令——懂技术的搭档。',
+  presetCreativeName: '创意模式',
+  presetCreativeDescription: '画画、写故事、头脑风暴——把点子变成作品。',
 
   presetStandardName: '标准模式',
   presetStandardDescription: '处理代码、文件和资料，适合大多数任务。Agent 会按需使用检索、编辑和终端等工具。',

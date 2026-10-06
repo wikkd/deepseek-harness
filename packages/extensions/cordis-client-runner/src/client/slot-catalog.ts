@@ -1848,9 +1848,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     hookContext: '',
     slotInject: '',
     declaredBy: 'an entry in \'main\' (client-ui-plugin-manager), so it exists while that entry is mounted',
-    occupants: [
-      'client-ui-agent-preset CreatePluginMenuItem id \'create-plugin\'',
-    ],
+    occupants: [],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'plugins.add.actions\', () => ctx.slots.register(\n      { name: \'plugins.add.actions\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
     source: 'packages/client/ui-plugin-manager/src/client/slot-contract.ts:84',

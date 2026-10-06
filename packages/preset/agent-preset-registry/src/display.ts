@@ -9,6 +9,9 @@
 
 /** Dictionary keys carrying one shipped preset's display copy. */
 export type BuiltInPresetCopyKey =
+  | 'presetAssistantName' | 'presetAssistantDescription'
+  | 'presetCodingName' | 'presetCodingDescription'
+  | 'presetCreativeName' | 'presetCreativeDescription'
   | 'presetStandardName' | 'presetStandardDescription'
   | 'presetPtcName' | 'presetPtcDescription'
   | 'presetMinimalName' | 'presetMinimalDescription'
@@ -38,6 +41,12 @@ interface PresetLocaleKeys {
 }
 
 const BUILT_IN_PRESET_KEYS: Readonly<Partial<Record<string, PresetLocaleKeys>>> = {
+  // The consumer fork's three locked working modes (2026-10-06 user directive):
+  // shipped declarations without a published name, copy owned by the locale
+  // dictionaries like every other shipped preset.
+  assistant: { name: 'presetAssistantName', description: 'presetAssistantDescription' },
+  coding: { name: 'presetCodingName', description: 'presetCodingDescription' },
+  creative: { name: 'presetCreativeName', description: 'presetCreativeDescription' },
   standard: { name: 'presetStandardName', description: 'presetStandardDescription' },
   ptc: { name: 'presetPtcName', description: 'presetPtcDescription' },
   minimal: { name: 'presetMinimalName', description: 'presetMinimalDescription' },

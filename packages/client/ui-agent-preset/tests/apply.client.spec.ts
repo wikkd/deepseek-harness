@@ -22,7 +22,6 @@ import type { AgentPresetSectionInjected } from '../src/client/AgentPresetSectio
 import { AgentPresetSeat } from '../src/client/AgentPresetSeat.tsx'
 import type { AgentPresetSeatInjected } from '../src/client/AgentPresetSeat.tsx'
 import { AgentPresetSeatController } from '../src/client/seat-store.ts'
-import { CreatePluginMenuItem, type CreatePluginMenuItemInjected } from '../src/client/CreatePluginMenuItem.tsx'
 import { AgentPresetSectionController } from '../src/client/section-store.ts'
 import { apply as hostApply } from '../src/index.ts'
 import type { AgentPresetRow } from '@deepseek-ai/dsh-agent-preset-registry/types'
@@ -374,8 +373,8 @@ describe('ui-agent-preset apply', () => {
     await vi.waitFor(() => { expect(slots.entries('settings.section')).toHaveLength(1) })
   })
 
-  it('binds the Add plugin menu item to the roster and Creator flow and removes it with the feature', async () => {
-    const { ctx, slots, setDeveloperTools } = await bench()
+  it('leaves the Add-plugin menu without a Creator entry', async () => {
+    const { ctx, slots } = await bench()
     try {
       slots.register({
         name: 'root',
@@ -388,25 +387,13 @@ describe('ui-agent-preset apply', () => {
       declareConversation(slots)
       ctx.provide('conversation', {} as never)
       ctx.provide('sessions', sessionsDouble(ctx, { byId: {} }) as never)
-      const uiWorkspace = uiWorkspaceDouble()
-      ctx.provide('uiWorkspace', uiWorkspace as never)
+      ctx.provide('uiWorkspace', uiWorkspaceDouble() as never)
       const feature = ctx.plugin({ inject: [...inject, 'conversation', 'sessions', 'uiWorkspace'], apply })
       await feature.await()
 
-      const entry = slots.entries('plugins.add.actions')[0]!
-      expect(entry.component).toBe(CreatePluginMenuItem)
-      const action: Partial<CreatePluginMenuItemInjected> | undefined = entry.inject?.()
-      if (action?.load === undefined || action.hooks === undefined || action.startCreatorDraft === undefined) {
-        throw new Error('expected the injected Create plugin actions')
-      }
-      await action.load()
-      expect(action.hooks.agentPresets.getSnapshot().options).toEqual([{ id: 'standard' }])
-
-      await setDeveloperTools(false)
-      action.startCreatorDraft()
-      expect(uiWorkspace.starts).toHaveLength(1)
-      expect(ctx.configForms.developerTools.enabled.getSnapshot()).toBe(false)
-
+      // The consumer fork locks the roster to its declared modes: no menu
+      // entry may start the Creator flow.
+      expect(slots.entries('plugins.add.actions')).toHaveLength(0)
       await feature.dispose()
       expect(slots.entries('plugins.add.actions')).toHaveLength(0)
     } finally {
