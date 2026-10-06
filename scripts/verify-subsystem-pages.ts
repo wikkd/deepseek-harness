@@ -18,9 +18,11 @@ export const GROUPS_WITHOUT_SUBSYSTEM_PAGE: Readonly<Record<string, string>> = {
   acp: 'Protocol transport entry point; the server package README owns its interoperability contract.',
   bundle: 'Composition patch carriers whose mounted packages own all runtime contracts.',
   hooks: 'External hook-protocol bridges over existing interception points, not a new Harness service.',
+  image: 'Product capability group whose sidecar and plugin READMEs own the render contracts; consumer docs surface is deferred to the product milestones.',
   sdk: 'Out-of-process protocol and client packages whose package READMEs own the SDK contracts.',
   'test-support': 'Repository test harnesses; docs/testing.md owns the testing policy they serve.',
   util: 'Low-level primitives whose business semantics remain with their consuming subsystems.',
+  voice: 'Product voice-stack group whose sidecar package READMEs own the engine contracts; consumer docs surface is deferred to the product milestones.',
 }
 
 /** Result of auditing package-group subsystem documentation. */

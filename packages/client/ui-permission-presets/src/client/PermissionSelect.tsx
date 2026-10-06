@@ -62,6 +62,8 @@ export interface PermissionSelectInjected {
   hooks: {
     /** One process catalog shared with the slash popup. */
     permissionCatalog: HostObservable<PermissionCatalogState>
+    /** Shared Developer tools preference: off hides the seat from consumer surfaces. Optional because only composed Web deployments wire it; absent keeps the seat visible. */
+    developerTools?: HostObservable<boolean>
   }
   /** Submit one current-session preset through the existing command writer. */
   select: (preset: string) => Promise<boolean>
@@ -74,8 +76,9 @@ export type PermissionSelectProps =
   & PropsLocale<typeof PERMISSION_ACCESS_NS>
 
 export function PermissionSelect({
-  locked, select, usePermissionCatalog, useProjection, t,
+  locked, select, usePermissionCatalog, useProjection, useDeveloperTools, t,
 }: PermissionSelectProps) {
+  const developerTools = useDeveloperTools?.(value => value) ?? true
   const selection = useProjection('permissions')
   const catalog = usePermissionCatalog(state => state.value)
   const [pick, setPick] = useState<string | null>(null)
@@ -161,6 +164,9 @@ export function PermissionSelect({
     : t('confirm.enable')
   const currentBadge = optionBadge(currentValue, t)
   const currentAccessibleLabel = currentBadge === undefined ? currentLabel : `${currentLabel} ${currentBadge}`
+
+  // Consumer surfaces hide the seat; the Developer tools preference brings it back.
+  if (!developerTools) return null
 
   return (
     <>

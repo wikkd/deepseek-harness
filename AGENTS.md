@@ -2,6 +2,24 @@
 
 DeepSeek Harness is an all-plugin Cordis agent harness. Read [docs/architecture.md](docs/architecture.md) before changing `packages/`; follow [docs/AGENTS.md](docs/AGENTS.md) for documentation.
 
+## 本项目开发规则（Project rules — highest priority)
+
+本项目是基于 DeepSeek Harness 构建的自有 harness。以下规则优先级最高，约束一切行为改动：
+
+1. **改行为，先找插件。** 在修改 `packages/`、`apps/`、`native/` 的源码之前，必须先按顺序查找是否已有对应的插件或扩展能直接满足需求：
+   - 工作区内置插件：查 [packages/README.md](packages/README.md) 与 [cordis 配置](docs/cordis-primer.md)，按能力在 `llm/`、`web/`、`sandbox/`、`skill/`、`mcp/`、`hooks/`、`preset/`、`compaction/`、`guard/` 等包组里找；
+   - 社区插件：npm 上的 `@deepseek-ai/dsh-*` 包，以及 GitHub 话题 [`dsh-plugin`](https://github.com/topics/dsh-plugin) 下的插件仓库；
+   - 无需写码的扩展面：MCP 外部工具（`packages/mcp/`）、技能加载（`packages/skill/`）、Claude Code/Codex hooks 桥接（`packages/hooks/`）、cordis.yml overlay 组合（`packages/preset/`）。
+2. **没有现成插件，优先写新插件。** 把行为实现为文档化扩展点上的新插件（workspace 新包或外部插件包），而不是改核心。插件即效果注册：遵循 `ctx.effect()` / `ctx.on()` 与 Service Definition 约定（见下方 Conventions）。
+3. **插件途径确实不够时，允许修改源码，但须留痕。** 改动必须记录：查过哪些插件途径（列出结论）、为何插件无法满足、改了哪个扩展点/核心模块。改 `agent-loop` 仍须同步更新 [docs/architecture.md](docs/architecture.md)。
+4. **本机插件隔离（2026-10-03 用户指示）。** 本机遗留的第三方插件一律不作参考、不复用、不作依赖；自有功能一律实现为本仓库 workspace 插件（`packages/` 新包），经 profile 补丁层（`cordis.patch.yml`）插入。profile 的 `package.json` 只保留项目明确需要的包。
+
+## 产品方向（2026-10-03 用户定调）
+
+本产品定位为**非专业式 agent 产品**（消费级助手）。已定三件事，后续以此为准：① 首个里程碑**语音双向对话**（小圆 TTS 之上补语音输入与连续对话）；② **彻底隐藏**工作区/目录概念（侧边栏只剩对话）；③ 最终形态 **Windows 桌面 App**（基于 apps/desktop）。引擎层（agent loop、工具、语音栈）不动，改呈现与默认值。
+
+**运行时数据目录隔离（2026-10-05 用户指示）。** 产品数据根目录 `~/.xiaoyuan`（`packages/util/home-paths`），与上游 dsh 的 `~/.dsh` 完全隔离；`DSH_HOME` 仍可覆盖，CLI 启动时回写进环境（`apps/cli/src/bin.ts`）。产品运行态不得写进 `~/.dsh`；home 路径一律走 `@deepseek-ai/dsh-home-paths`，不得手写 `homedir()/.dsh`。
+
 ## Pre-stable APIs and released Session data
 
 Public APIs are pre-stable; update every consumer. Follow [version/status](docs/session-format-status.md) and [type acknowledgements](docs/cookbook/reviewing-persistence-type-changes.md). [Adjacent migration](.agents/notes/implemented/architecture/2026-08-31-released-session-format-migrations.md) may add a version-named successor but never move, overwrite, or delete committed generations; predecessors imply neither fallback nor downgrade support. SQLite uses monotonic `SCHEMA_VERSION`.
@@ -65,6 +83,7 @@ packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   sdk/                  JSON-RPC SDK
   host/                 GUI host
   client/               GUI client
+  voice/                sidecar voice stacks (local TTS engines living and dying with the profile)
   mcp/                  external tools
   experimental/         pre-stable prototypes; public by default with explicit private exceptions
   test-support/         test infrastructure

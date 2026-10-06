@@ -55,6 +55,9 @@ interface EffortChoice {
 /** Unplaced portal card: hidden but laid out at a fixed origin so offsetWidth/offsetHeight are real (Menu primitive's measure pass). */
 const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
 
+/** Stable no-op subscriber for the optional preference: absent keeps the seat visible. */
+const subscribeNoop = (): (() => void) => () => {}
+
 /**
  * Render the composer model seat.
  * @param props - owner share (locked) + injected face (shared directory
@@ -62,7 +65,7 @@ const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
  * @returns the trigger and, while open, the two-level menu.
  */
 export function ModelSelect(
-  { locked, available, directory, load, select, t }:
+  { locked, available, developerTools, directory, load, select, t }:
   ModelSelectInjected & { locked: boolean } & PropsLocale<'model'>,
 ) {
   const state = useSyncExternalStore(
@@ -431,6 +434,13 @@ export function ModelSelect(
     const at = itemIndex++
     return (node: HTMLButtonElement | null) => { itemRefs.current[at] = node }
   }
+
+  // Consumer surfaces hide the seat; the Developer tools preference brings it back.
+  const developerToolsVisible = useSyncExternalStore(
+    developerTools?.subscribe ?? subscribeNoop,
+    () => developerTools?.getSnapshot() ?? true,
+  )
+  if (!developerToolsVisible) return null
 
   return (
     <div

@@ -7,6 +7,8 @@ export const zh = {
   'toggle.open': '打开侧边栏',
   'toggle.collapse': '收起侧边栏',
   'panels.label': '全局面板',
+  /** Occupant-facing product name; the shell fallback keeps using the shared `common` brand key. */
+  'brand.product': '小圆',
 } satisfies Record<string, string>
 
 /** The sidebar namespace key union. */
@@ -19,4 +21,5 @@ export const en = {
   'toggle.open': 'Open sidebar',
   'toggle.collapse': 'Collapse sidebar',
   'panels.label': 'Global panels',
+  'brand.product': 'Xiaoyuan',
 } satisfies Record<SidebarKey, string>

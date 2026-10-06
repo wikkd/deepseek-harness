@@ -1,0 +1,37 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/voice/gptsovits-voice/README.md
+/:
+  en: 8cd67142cae7d5c0
+  zh: c18c259d571f9433
+/deepseek-ai-dsh-gptsovits-voice:
+  en: af32939dbc39b341
+  zh: facc78c9012282f8
+/deepseek-ai-dsh-gptsovits-voice/summary:
+  en: 1ee9435abc6fac7f
+  zh: e668077d9f205d9c
+/deepseek-ai-dsh-gptsovits-voice/table-of-contents:
+  en: 80b31a934611cb4a
+  zh: 05f3f7f9cb2fd881
+/deepseek-ai-dsh-gptsovits-voice/use-this-package:
+  en: 3f94d45665240a9d
+  zh: 2250e8f5cb73f400
+/deepseek-ai-dsh-gptsovits-voice/use-this-package/when-to-choose-it:
+  en: f02850fcf2e93199
+  zh: 2646be697c4f7c95
+/deepseek-ai-dsh-gptsovits-voice/use-this-package/minimal-configuration:
+  en: 6e8d4e4fe4500a1a
+  zh: a902123b38ef9eb8
+/deepseek-ai-dsh-gptsovits-voice/understand-the-implementation:
+  en: 3c6666c0069bf3ba
+  zh: 62a9bb72d2bd97e2
+/deepseek-ai-dsh-gptsovits-voice/further-exploration:
+  en: 1edadabb82602194
+  zh: 63e98274a0c815e2
+/deepseek-ai-dsh-gptsovits-voice/known-limitations-and-deferred-work:
+  en: 1245cb130ccfe3f0
+  zh: 1367db23def034c7
+/deepseek-ai-dsh-gptsovits-voice/known-limitations-and-deferred-work/dev-note:
+  en: 0938e25ccf1c520c
+  zh: 906d80a7ab987ee3

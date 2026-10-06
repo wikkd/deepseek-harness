@@ -24,6 +24,11 @@ export type RunCliOptions = Pick<RunProfileOptions, 'packageManager'> & {
  * @returns a promise that settles when the selected command mode finishes.
  */
 export async function runCli(options: RunCliOptions = {}): Promise<void> {
+  // Third-party packages and spawned sidecars read `$DSH_HOME` directly with a
+  // private `~/.dsh` fallback; pin the resolved home into the environment so
+  // they follow this product's isolated default instead of the upstream dsh's.
+  const configuredHome = process.env.DSH_HOME
+  if (configuredHome === undefined || configuredHome.trim() === '') process.env.DSH_HOME = resolveDshHome()
   const version = getDshRuntimeVersion()
   const { manageDesktopProfile, ...profileOptions } = options
   const invocation = parseDshArgs(process.argv.slice(2), version, manageDesktopProfile)

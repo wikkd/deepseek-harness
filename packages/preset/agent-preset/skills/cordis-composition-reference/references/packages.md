@@ -69,6 +69,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-client-ui-approval` | no | Approval composer takeover over the scoped Remote Event waterfall |
 | `@deepseek-ai/dsh-client-ui-attachment` | no | Dynamic attachment presentation plugin for conversation input, message-image, and trajectory image slots |
 | `@deepseek-ai/dsh-client-ui-brand-official` | no | Official DeepSeek Harness brand occupants for the Web client's sidebar slots |
+| `@deepseek-ai/dsh-client-ui-brand-xiaoyuan` | no | 小圆 product brand occupants for the Web client's sidebar slots; the consumer fork's replacement brand package |
 | `@deepseek-ai/dsh-client-ui-chat` | no | Chat Conversation target, node definitions, renderers, and details surface |
 | `@deepseek-ai/dsh-client-ui-commands` | no | Client command surface: global directory cache, '/' source, three command UI kinds, popupSelect registry |
 | `@deepseek-ai/dsh-client-ui-conversation` | no | Target-neutral Conversation assembly, shell, composer, queue, and view navigation |
@@ -259,6 +260,12 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-host-plugin-inventory` | no | Read-only Remote projection of current Cordis Loader plugin state |
 | `@deepseek-ai/dsh-host-product-telemetry-otel` | yes | Explicit product usage events exported through OpenTelemetry HTTP logs |
 | `@deepseek-ai/dsh-host-webserver` | yes | Web route-registration plugin: HTTP and upgrade routes, index transform taps, and static dist fallback; knows no harness concepts |
+
+## image
+
+| Package | Config | Description |
+|---|---|---|
+| `@deepseek-ai/dsh-image-gen` | yes | Model-facing generate_image tool over an OpenAI-compatible text-to-image API; results commit to the durable attachment store and render as picture cards in the web conversation |
 
 ## interaction
 
@@ -477,6 +484,12 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 |---|---|---|
 | `@deepseek-ai/dsh-typert-loader` | yes | Loader integration for generated Typert package contributions |
 
+## voice
+
+| Package | Config | Description |
+|---|---|---|
+| `@deepseek-ai/dsh-gptsovits-voice` | yes | Sidecar voice stack: manages a local GPT-SoVITS api_v2 process and serves the OpenAI-compatible TTS bridge consumed by the dsh-tts custom provider |
+
 ## web
 
 | Package | Config | Description |
@@ -507,4 +520,5 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 
 | Package | Config | Description |
 |---|---|---|
+| `@deepseek-ai/dsh-instant-chat` | yes | Instant chat: guarantees a default workspace exists so the web GUI can start a conversation without the operator picking a directory first |
 | `@deepseek-ai/dsh-workspace` | no | Workspace entity registry (ctx.workspaceRegistry): durable workspace records with validated session attachment over the domain data form for the DeepSeek Harness |

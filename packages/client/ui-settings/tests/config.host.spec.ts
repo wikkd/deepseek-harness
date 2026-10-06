@@ -5,13 +5,13 @@ import { liveConfig, omitsGeneratedPage } from '../../../settings/settings/tests
 import { plainConfig } from '../../../settings/settings/src/schema.ts'
 import { Config, apply } from '../src/index.ts'
 
-it('defaults on, persists valid choices and removes its schema on disposal', async () => {
+it('defaults off, persists valid choices and removes its schema on disposal', async () => {
   const ctx = new Context()
   const configuration = await liveConfig(ctx, { Config, apply })
   onTestFinished(() => ctx.fiber.dispose())
-  expect(plainConfig(configuration.fiber.config)).toEqual({ enabled: true })
-  await configuration.update({ enabled: false })
   expect(plainConfig(configuration.fiber.config)).toEqual({ enabled: false })
+  await configuration.update({ enabled: true })
+  expect(plainConfig(configuration.fiber.config)).toEqual({ enabled: true })
   await expect(configuration.update({ enabled: 'yes' })).rejects.toThrow()
   await configuration.fiber.dispose()
 })

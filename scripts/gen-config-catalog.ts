@@ -628,11 +628,12 @@ function findSchemaExpr(ctx: FileCtx, pluginClass: ts.ClassDeclaration | null): 
  * file, else `static inject = […]` on the plugin class. */
 function findInject(ctx: FileCtx, pluginClass: ts.ClassDeclaration | null, violations: string[]): string[] {
   const fromArray = (expr: ts.Expression, where: string): string[] => {
-    if (!ts.isArrayLiteralExpression(expr)) {
+    const literal = ts.isAsExpression(expr) || ts.isSatisfiesExpression(expr) ? expr.expression : expr
+    if (!ts.isArrayLiteralExpression(literal)) {
       violations.push(`${where}: inject is not a plain string-array literal; teach the generator the new declaration form.`)
       return []
     }
-    return expr.elements.map(el => ts.isStringLiteral(el) ? el.text : el.getText(ctx.sf))
+    return literal.elements.map(el => ts.isStringLiteral(el) ? el.text : el.getText(ctx.sf))
   }
   for (const stmt of ctx.sf.statements) {
     if (!ts.isVariableStatement(stmt)) continue

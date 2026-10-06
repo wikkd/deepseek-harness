@@ -165,28 +165,41 @@
   overflow: hidden;
 }
 
-.runningWhaleAnimated {
+.runningBowAnimated {
   display: none;
   position: absolute;
   inset: 0;
 }
 
-.runningWhaleStill {
+.runningBowStill {
   display: initial;
+}
+
+/* The bow breathes about its knot — legible at 14px where a swim loop is not. */
+@keyframes running-bow-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.14);
+  }
 }
 
 @supports (mask-mode: alpha) and (mask-image: url('')) {
   @media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
-    .runningWhaleAnimated {
+    .runningBowAnimated {
       display: block;
       background: currentColor;
-      mask: url('./running-whale@2x.png') center / 100% 100% no-repeat;
-      mask-mode: alpha;
+      mask: url('./running-bow.png') center / 100% 100% no-repeat;
+      mask-mode: luminance;
       /* Keep animated-mask repaints on an icon-sized composited layer. */
       will-change: transform;
+      animation: running-bow-breathe 1.6s ease-in-out infinite;
     }
 
-    .runningWhaleStill {
+    .runningBowStill {
       display: none;
     }
   }

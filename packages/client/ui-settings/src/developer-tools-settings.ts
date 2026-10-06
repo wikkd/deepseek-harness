@@ -10,9 +10,9 @@ export interface DeveloperToolsSettings {
   enabled: boolean
 }
 
-/** New installations and missing values enable the full interface. */
+/** New installations and missing values keep the consumer interface; developers opt in through Settings. */
 export const DeveloperToolsSettingsFields = {
-  enabled: z.boolean().default(true),
+  enabled: z.boolean().default(false),
 }
 
 /** Schema for shared configuration values. */

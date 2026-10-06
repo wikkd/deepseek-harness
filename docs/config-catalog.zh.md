@@ -67,7 +67,7 @@ export interface Config {
 ```ts config-catalog
 /** User-facing workspace instruction loader configuration. */
 export interface Config {
-  /** Harness home containing the fixed user-global `AGENTS.md`; defaults to `$DSH_HOME` or `~/.dsh`. */
+  /** Harness home containing the fixed user-global `AGENTS.md`; defaults to `$DSH_HOME` or `~/.xiaoyuan`. */
   dshHome?: string
   /** Directory entries that identify the project root while walking upward from the session cwd. */
   projectRootMarkers?: string[]
@@ -357,7 +357,7 @@ export interface Config {
 ```ts config-catalog
 /** Local attachment backend configuration. */
 export interface Config {
-  /** Explicit harness home; omitted follows `DSH_HOME`, then `~/.dsh`. */
+  /** Explicit harness home; omitted follows `DSH_HOME`, then `~/.xiaoyuan`. */
   dshHome?: string
   /** Maximum encoded bytes accepted for one submitted image. Default: 20 MiB. */
   maxImageBytes?: number
@@ -776,7 +776,7 @@ export interface Config {
 export interface Config {
   /** Credentials document path; defaults to `.credentials.yaml` under the harness home. */
   path?: string
-  /** Harness home used when `path` is omitted; defaults to `$DSH_HOME` or `~/.dsh`. */
+  /** Harness home used when `path` is omitted; defaults to `$DSH_HOME` or `~/.xiaoyuan`. */
   dshHome?: string
   /** Watch the document and hot-publish external edits; defaults to true. */
   watch?: boolean
@@ -1306,6 +1306,58 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-goal -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-gptsovits-voice -->
+<a id="deepseek-aidsh-gptsovits-voice"></a>
+
+## `@deepseek-ai/dsh-gptsovits-voice`
+
+- `source`: [`packages/voice/gptsovits-voice/src/index.ts:24`](../packages/voice/gptsovits-voice/src/index.ts)
+
+```ts config-catalog
+/** Plugin config: every deployment-specific choice is a field, never a constant. */
+export interface Config {
+  /** Absolute GPT-SoVITS checkout directory (api_v2.py sits at its root). */
+  gptsovitsDir?: string
+  /** Python interpreter for api_v2; empty uses `<gptsovitsDir>/.venv/Scripts/python.exe`. */
+  pythonPath?: string
+  /** Host both api_v2 and the bridge bind to. */
+  host?: string
+  /** Port of the GPT-SoVITS api_v2. */
+  apiPort?: number
+  /** Port of the OpenAI-compatible bridge; dsh-tts `customBaseUrl` points here. */
+  bridgePort?: number
+  /** api_v2 TTS config path, relative to `gptsovitsDir`. */
+  apiConfigPath?: string
+  /** Spawn api_v2 on profile boot; turn off when GPT-SoVITS is managed elsewhere. */
+  autostartApi?: boolean
+  /** How long to keep polling for api readiness before logging a timeout. */
+  apiStartupTimeoutMs?: number
+  /** Fetch timeout for one synthesis request. */
+  requestTimeoutMs?: number
+  /** Voice used when a request names no profile or an unknown one. */
+  defaultVoice?: string
+  /** Cloned-voice profiles served by the bridge. */
+  voices?: VoiceProfile[]
+}
+
+/** One cloned-voice profile: the reference clip GPT-SoVITS speaks through. */
+export interface VoiceProfile {
+  /** Profile name the dsh-tts chain entry refers to as `voice`. */
+  name: string
+  /** Absolute path (as seen by the GPT-SoVITS process) of the 3-10 s reference wav. */
+  refAudioPath: string
+  /** Exact transcript of the reference clip. */
+  promptText: string
+  /** Language of the reference clip (ja, zh, en, ...). */
+  promptLang: string
+  /** Force the synthesis language; `auto` detects kana/hangul/han/latin per request. */
+  textLang: string
+  /** Extra reference clips for multi-reference tone fusion. */
+  auxRefAudioPaths: string[]
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-gptsovits-voice -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-headless -->
 <a id="deepseek-aidsh-headless"></a>
 
@@ -1542,6 +1594,82 @@ export interface Config {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-host-webserver -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-image-gen -->
+<a id="deepseek-aidsh-image-gen"></a>
+
+## `@deepseek-ai/dsh-image-gen`
+
+- `inject`: `tools`
+- `source`: [`packages/image/image-gen/src/index.ts:26`](../packages/image/image-gen/src/index.ts)
+
+```ts config-catalog
+/** Plugin config: provider endpoint, model, credentials source, and request bounds. */
+export interface Config {
+  /**
+   * Generation backend: `comfyui` drives a local ComfyUI server (no key),
+   * `openai-images` calls an OpenAI-compatible images API. Defaults to
+   * `comfyui` when `comfyuiUrl` answers, else `openai-images`.
+   */
+  backend?: 'comfyui' | 'openai-images'
+  /** Local ComfyUI server origin (e.g. http://127.0.0.1:8188). */
+  comfyuiUrl?: string
+  /** ComfyUI checkpoint name under models/checkpoints. */
+  comfyuiCheckpoint?: string
+  /** ComfyUI sampler steps; turbo/distilled checkpoints need 1-4. */
+  comfyuiSteps?: number
+  /** ComfyUI CFG guidance; turbo checkpoints want ~1. */
+  comfyuiCfg?: number
+  /**
+   * Absolute ComfyUI checkout directory (`main.py` at its root). When set and
+   * the backend is `comfyui`, the plugin owns the server's lifecycle: it
+   * spawns `main.py` when the origin is not serving, respawns after a crash
+   * on the next render, and kills the child when the profile stops. Empty
+   * leaves server management to the operator.
+   */
+  comfyuiDir?: string
+  /** Python interpreter that runs ComfyUI; empty uses `<comfyuiDir>/python_embeded`. */
+  comfyuiPythonPath?: string
+  /** Deadline for one managed-startup poll sequence. */
+  comfyuiStartupTimeoutMs?: number
+  /** Extra ComfyUI CLI arguments appended verbatim (whitespace-split). */
+  comfyuiExtraArgs?: string
+  /** OpenAI-compatible images API origin; `/images/generations` is appended. */
+  baseUrl?: string
+  /** Text-to-image model id the provider routes (e.g. `black-forest-labs/FLUX.1-schnell`). */
+  model?: string
+  /** Environment variable holding the provider API key; the value never enters config or logs. */
+  apiKeyEnv?: string
+  /** Default image size as `宽x高` pixels, e.g. `1024x1024`. */
+  size?: string
+  /** Deadline for the provider request plus the picture download. */
+  timeoutMs?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-image-gen -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-instant-chat -->
+<a id="deepseek-aidsh-instant-chat"></a>
+
+## `@deepseek-ai/dsh-instant-chat`
+
+- `inject`: `workspaceRegistry`
+- `source`: [`packages/workspace/instant-chat/src/index.ts:27`](../packages/workspace/instant-chat/src/index.ts)
+
+```ts config-catalog
+/** Plugin config: where the fallback workspace lives and what it is called. */
+export interface Config {
+  /**
+   * Default workspace directory. `~` expands against the OS home; a relative
+   * path resolves against the host process cwd. Empty uses
+   * `<DSH_HOME>/workspaces/default` (`DSH_HOME` defaults to `~/.xiaoyuan`).
+   */
+  path?: string
+  /** Display title in the sidebar. Empty uses "Default". */
+  title?: string
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-instant-chat -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-jobs-local -->
 <a id="deepseek-aidsh-jobs-local"></a>
@@ -2836,7 +2964,7 @@ export type Config = SessionTitleLlmConfig
 ```ts config-catalog
 /** Plugin config (all optional — the built-in facts resolve without defaults). */
 export interface Config {
-  /** DeepSeek Harness home directory exposed as `DSH_HOME`; defaults to `$DSH_HOME` or `~/.dsh`. */
+  /** DeepSeek Harness home directory exposed as `DSH_HOME`; defaults to `$DSH_HOME` or `~/.xiaoyuan`. */
   dshHome?: string
 }
 ```
@@ -2873,7 +3001,7 @@ export interface Config {
   providerName?: string
   /** Whether project and user roots are included around custom roots. */
   includeDefaultRoots?: boolean
-  /** DeepSeek Harness config root. Defaults to `$DSH_HOME` or `~/.dsh`. */
+  /** DeepSeek Harness config root. Defaults to `$DSH_HOME` or `~/.xiaoyuan`. */
   dshHome?: string
   /** Shared agent config root. Defaults to `$DSH_AGENTS_HOME` or `~/.agents`. */
   agentsHome?: string
@@ -4361,6 +4489,7 @@ export interface Config {
 | `@deepseek-ai/dsh-client-ui-approval` | — | [`packages/client/ui-approval/src/index.ts`](../packages/client/ui-approval/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-attachment` | — | [`packages/client/ui-attachment/src/index.ts`](../packages/client/ui-attachment/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-brand-official` | — | [`packages/client/ui-brand-official/src/index.ts`](../packages/client/ui-brand-official/src/index.ts) |
+| `@deepseek-ai/dsh-client-ui-brand-xiaoyuan` | — | [`packages/client/ui-brand-xiaoyuan/src/index.ts`](../packages/client/ui-brand-xiaoyuan/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-chat` | — | [`packages/client/ui-chat/src/index.ts`](../packages/client/ui-chat/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-commands` | — | [`packages/client/ui-commands/src/index.ts`](../packages/client/ui-commands/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-conversation` | — | [`packages/client/ui-conversation/src/index.ts`](../packages/client/ui-conversation/src/index.ts) |

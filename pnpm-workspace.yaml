@@ -31,6 +31,10 @@ peerDependencyRules:
 allowBuilds:
   esbuild: true
   lefthook: true
+  # Project-local static ffmpeg for the gptsovits-voice sidecar: its postinstall
+  # downloads the platform binary so the voice bridge does not depend on a
+  # machine-global ffmpeg install.
+  ffmpeg-static: true
   # Cross-platform boundary for the persistent PTY backend, including ConPTY on Windows.
   node-pty: true
   # Pulled in by @earendil-works/pi-ai (optional LLM API backend). pnpm lists
@@ -103,5 +107,12 @@ patchedDependencies:
   '@fortune-sheet/core@1.0.4': patches/@fortune-sheet__core@1.0.4.patch
   '@fortune-sheet/react@1.0.4': patches/@fortune-sheet__react@1.0.4.patch
   '@yao-pkg/pkg@6.21.0': patches/@yao-pkg__pkg@6.21.0.patch
+  # esbuild 0.25.12's Go service deletes its >1MB stdin temp file while its own
+  # read handle is still open; that open lacks FILE_SHARE_DELETE on Windows, so
+  # every vite build of a large chunk dies with "remove ...esbuild-<hash>:
+  # Access is denied". Raising the temp-file threshold to 1GB keeps large
+  # transforms in-band (the pipe protocol already carries >1MB payloads both
+  # ways). Fixed upstream in esbuild 0.26+; remove this patch after upgrading.
+  esbuild@0.25.12: patches/esbuild@0.25.12.patch
   exceljs@4.4.0: patches/exceljs@4.4.0.patch
   node-pty@1.2.0-beta.15: patches/node-pty@1.2.0-beta.15.patch

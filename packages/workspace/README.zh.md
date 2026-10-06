@@ -25,6 +25,7 @@ workspace 家族让宿主产品持久保存命名且有序的项目列表，并�
 | 包 | 职责 | ctx 键 |
 |---|---|---|
 | [`workspace`](workspace/README.zh.md) | 提供命名且有序的项目，并按目录归组在其中运行的会话 | `ctx.workspaceRegistry` |
+| [`instant-chat`](instant-chat/README.zh.md) | 保证默认工作区存在，对话无需先选目录即可开始 | 消费 `ctx.workspaceRegistry` |
 
 -----
 

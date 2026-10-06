@@ -130,6 +130,10 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
       return () => { seats.delete(options.name) }
     },
   })
+  // Developer tools on: the bench exercises the seat's full behavior.
+  ctx.provide('configForms', {
+    developerTools: { enabled: createSnapshotStore<boolean>(true) },
+  } as never)
   const localeRuntime = new LocaleRuntime(ctx)
   // There is no jsdom `window` in this lane, so browser-language detection
   // never runs. Each bench states the locale its assertions require.

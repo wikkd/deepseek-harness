@@ -168,7 +168,7 @@ export function apply(ctx: ClientContext): void {
     name: 'conversation.input.permission',
     locale: PERMISSION_ACCESS_NS,
     inject: (sessionId: SessionId): PermissionSelectInjected => ({
-      hooks: { permissionCatalog: catalog.store },
+      hooks: { permissionCatalog: catalog.store, developerTools: ctx.configForms.developerTools.enabled },
       select: preset => submit(sessionId, preset),
     }),
   }, PermissionSelect))

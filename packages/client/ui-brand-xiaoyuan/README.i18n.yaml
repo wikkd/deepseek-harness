@@ -1,0 +1,37 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/client/ui-brand-xiaoyuan/README.md
+/:
+  en: 30f7f8b4c366e22e
+  zh: 2510fcacb34a5c04
+/deepseek-ai-dsh-client-ui-brand-xiaoyuan:
+  en: cecdca0cc5cbf506
+  zh: b6d594e2c24f1c80
+/deepseek-ai-dsh-client-ui-brand-xiaoyuan/summary:
+  en: 77752c587984e8e4
+  zh: 68e2f5af01786a9c
+/deepseek-ai-dsh-client-ui-brand-xiaoyuan/table-of-contents:
+  en: 80b31a934611cb4a
+  zh: 05f3f7f9cb2fd881
+/deepseek-ai-dsh-client-ui-brand-xiaoyuan/use-this-package:
+  en: 65774ebff9e20330
+  zh: a4e376c3ed07f7a5
+/deepseek-ai-dsh-client-ui-brand-xiaoyuan/use-this-package/when-to-choose-it:
+  en: 9c24173999bca311
+  zh: 20c360e4b142657a
+/deepseek-ai-dsh-client-ui-brand-xiaoyuan/use-this-package/minimal-configuration:
+  en: d4c2187f127cb088
+  zh: 8601370124e9902a
+/deepseek-ai-dsh-client-ui-brand-xiaoyuan/understand-the-implementation:
+  en: b07d78868331cf1f
+  zh: a98aea504bbd019f
+/deepseek-ai-dsh-client-ui-brand-xiaoyuan/further-exploration:
+  en: 685c94ece6886b11
+  zh: c340234f97fc1354
+/deepseek-ai-dsh-client-ui-brand-xiaoyuan/known-limitations-and-deferred-work:
+  en: 66f7189cf85ef223
+  zh: a997fc4a1fd78745
+/deepseek-ai-dsh-client-ui-brand-xiaoyuan/known-limitations-and-deferred-work/dev-note:
+  en: 30ca66f65af5bac7
+  zh: 4758f1a29e1e0ab7

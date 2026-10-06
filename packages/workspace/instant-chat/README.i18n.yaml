@@ -1,0 +1,37 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/workspace/instant-chat/README.md
+/:
+  en: 2b526d33bc667679
+  zh: d9c6a8124c97a462
+/deepseek-ai-dsh-instant-chat:
+  en: 403f62db7db2184d
+  zh: 8e1fd4b12a24f436
+/deepseek-ai-dsh-instant-chat/summary:
+  en: 90eabaa7b019b1be
+  zh: b7a2d693a6b45682
+/deepseek-ai-dsh-instant-chat/table-of-contents:
+  en: 80b31a934611cb4a
+  zh: 05f3f7f9cb2fd881
+/deepseek-ai-dsh-instant-chat/use-this-package:
+  en: 22ac58cdbf62fcaa
+  zh: 79e562f470a93343
+/deepseek-ai-dsh-instant-chat/use-this-package/when-to-choose-it:
+  en: 000a43434a56dbd2
+  zh: 1ca03f20d5503bf7
+/deepseek-ai-dsh-instant-chat/use-this-package/minimal-configuration:
+  en: 7f6b0d30444bad73
+  zh: 5d9cf6eb23e5f443
+/deepseek-ai-dsh-instant-chat/understand-the-implementation:
+  en: 4ea13a3c6c705910
+  zh: cfa2c23aeee8a559
+/deepseek-ai-dsh-instant-chat/further-exploration:
+  en: 0cf1c1d1da2eaed1
+  zh: 725132dbab7ddedf
+/deepseek-ai-dsh-instant-chat/known-limitations-and-deferred-work:
+  en: b3ad15d41c3176f5
+  zh: 1fe83d66948fa8cf
+/deepseek-ai-dsh-instant-chat/known-limitations-and-deferred-work/dev-note:
+  en: 5542b1406cc6f63a
+  zh: aadef2bcf3319a2f

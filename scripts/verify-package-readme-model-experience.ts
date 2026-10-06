@@ -37,6 +37,9 @@ const NO_MODEL_EXPERIENCE_SECTION: Readonly<Record<string, string>> = {
   'packages/util/workspace-path': 'The package only formats Workspace paths for browser UI; it never constructs model input.',
   'packages/util/values': 'The package only validates, snapshots, compares, freezes, or rejects caller-owned values; consumers own every model-facing use.',
   'packages/util/code-language': 'The package only maps a filename suffix to a syntax-highlighting language id; the read consumer owns the persisted hint.',
+  'packages/workspace/instant-chat': 'Boot-time workspace registry bootstrap registers no model-visible context or tools.',
+  'packages/voice/gptsovits-voice': 'The sidecar hosts a TTS process and bridge; the model reaches it only through the dsh-tts provider chain, never through package-registered context or tools.',
+  'packages/client/ui-brand-xiaoyuan': 'Browser-side presentation occupants; registers nothing model-facing.',
 }
 
 /**
