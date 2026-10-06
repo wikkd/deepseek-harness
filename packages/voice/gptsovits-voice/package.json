@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-gptsovits-voice",
   "description": "Sidecar voice stack: manages a local GPT-SoVITS api_v2 process and serves the OpenAI-compatible TTS bridge consumed by the dsh-tts custom provider",
-  "version": "0.2.0-rc.2",
+  "version": "0.2.1-alpha.1",
   "private": true,
   "type": "module",
   "main": "lib/index.js",

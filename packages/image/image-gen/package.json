@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-image-gen",
   "description": "Model-facing generate_image tool over an OpenAI-compatible text-to-image API; results commit to the durable attachment store and render as picture cards in the web conversation",
-  "version": "0.2.0-rc.2",
+  "version": "0.2.1-alpha.1",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
