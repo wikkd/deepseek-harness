@@ -63,6 +63,13 @@
 
 .panel[data-sidebar-right-panel='fullscreen'] {
   --dsh-dockkit-dock-layer: 40;
+  /* Glass themes rebind the surface tokens on body to translucent fills —
+     the glass surface reads the desktop behind the window. A fullscreen
+     panel covers app content instead, so its panes would show the
+     conversation through the workspace. Restore the opaque base inside the
+     fullscreen subtree; the static token keeps the theme's dark-mode value
+     because body defines it per theme. */
+  --dsw-alias-bg-base: var(--dsw-static-neutral-bluish-00);
 }
 
 /* No whole-box subtraction here: Electron drag regions are window geometry,
