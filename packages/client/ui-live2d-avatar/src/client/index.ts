@@ -180,7 +180,13 @@ export function apply(ctx: ClientContext): void {
         view: canvas, backgroundAlpha: 0, autoDensity: true, resolution: 2, resizeTo: host,
       })
       host.appendChild(canvas)
-      const model = await Live2DModel.from(MODEL_URL, { autoInteract: false })
+      // The automator falls back to a global `window.PIXI` when no ticker is
+      // given; this bundle inlines pixi and never exposes that global, so the
+      // explicit ticker is what keeps autoUpdate alive — without it the model
+      // freezes on its initial frame (every arm variant visible, no motions).
+      const model = await Live2DModel.from(MODEL_URL, {
+        autoHitTest: false, autoFocus: false, ticker: PIXI.Ticker.shared,
+      })
       if (disposed) {
         model.destroy()
         petApp.destroy(true)
