@@ -13,6 +13,7 @@ import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attach
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
 import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import css from './ImageGenRow.module.css'
 
 /** Row props: the runtime share plus the framework-injected seat of our own namespace. */
 type ImageGenRowProps = ToolCallViewProps & { t: TranslateNS<'image-gen'> }
@@ -106,8 +107,8 @@ function Picture({ attachment, loadImage, alt }: {
       alive = false
     }
   }, [attachment, loadImage, src])
-  if (src === undefined) return <div data-image-gen-placeholder="" />
-  return <img src={src} alt={alt} data-image-gen-picture="" />
+  if (src === undefined) return <div className={css.placeholder} data-image-gen-placeholder="" />
+  return <img className={css.picture} src={src} alt={alt} data-image-gen-picture="" />
 }
 
 /**
@@ -139,7 +140,7 @@ export function ImageGenRow(props: ImageGenRowProps) {
     return <div data-image-gen-row="">{t('failed')}</div>
   }
   return (
-    <div data-image-gen-row="" data-image-gen-picture-only="">
+    <div className={css.row} data-image-gen-row="" data-image-gen-picture-only="">
       {card.images.map((attachment) => (
         <Picture key={attachment.attachmentId} attachment={attachment} loadImage={loadImage} alt={t('imageAlt')} />
       ))}

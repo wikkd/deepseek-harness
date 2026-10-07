@@ -1,0 +1,26 @@
+/* The generate_image preview: a small inline thumbnail, not a full-width picture. */
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.picture {
+  width: 160px;
+  height: 160px;
+  object-fit: cover;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-lg);
+  background: var(--dsw-static-neutral-50);
+}
+
+:global(body[data-ds-dark-theme]) .picture {
+  background: var(--dsw-static-neutral-850);
+}
+
+.placeholder {
+  width: 160px;
+  height: 160px;
+  border: 0.5px dashed var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-lg);
+}
