@@ -1,18 +1,24 @@
 /**
  * OpenAI-compatible TTS bridge: accepts `POST /v1/audio/speech` in the exact
  * shape the dsh-tts `custom` provider sends (`{model, input, voice,
- * response_format}`), synthesizes through the local GPT-SoVITS api_v2 `/tts`
- * endpoint, transcodes the wav answer to mp3 with the bundled ffmpeg, and
- * answers `audio/mpeg` — the media type dsh-tts assumes for every custom
- * response regardless of what the engine produced.
+ * response_format}`), synthesizes through the configured engines, transcodes
+ * the wav answer to mp3 with the bundled ffmpeg, and answers `audio/mpeg` —
+ * the media type dsh-tts assumes for every custom response regardless of what
+ * the engine produced.
+ *
+ * Two engines: GPT-SoVITS api_v2 (the fine-tuned voice identity, ja/en) and
+ * the local IndexTTS-2.5 service (native Chinese prosody). Each request picks
+ * one via the voice profile's engine preference and the text language.
  * @module @deepseek-ai/dsh-gptsovits-voice/bridge
  */
 
 import { spawn } from 'node:child_process'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
+import { detectLang, ffmpegArgs, indexttsTts, resolveEngine,
+  type EngineAvailability, type EnginePreference } from './indextts.ts'
 
-/** One cloned-voice profile: the reference clip GPT-SoVITS speaks through. */
+/** One cloned-voice profile: the reference clips both engines speak through. */
 export interface VoiceProfile {
   /** Profile name the dsh-tts chain entry refers to as `voice`. */
   name: string
@@ -26,6 +32,10 @@ export interface VoiceProfile {
   textLang: string
   /** Extra reference clips for multi-reference tone fusion. */
   auxRefAudioPaths: string[]
+  /** Engine preference; `auto` sends Chinese to IndexTTS when available. */
+  engine: EnginePreference
+  /** Absolute path of the profile's IndexTTS reference wav; empty keeps the profile on GPT-SoVITS. */
+  indexRefAudioPath: string
 }
 
 /** Bridge server settings, already resolved from plugin config. */
@@ -36,6 +46,8 @@ export interface BridgeConfig {
   port: number
   /** Base URL of the local GPT-SoVITS api_v2 (`http://host:port`). */
   gptsovitsUrl: string
+  /** Base URL of the local IndexTTS service; empty means IndexTTS is not deployed. */
+  indexttsUrl: string
   /** Absolute path of the ffmpeg executable used for the wav→mp3 transcode. */
   ffmpegPath: string
   /** Voice used when a request names no profile or an unknown one. */
@@ -44,6 +56,8 @@ export interface BridgeConfig {
   voices: Map<string, VoiceProfile>
   /** Fetch timeout for one synthesis request. */
   requestTimeoutMs: number
+  /** Normalize loudness to -16 LUFS so the two engines' output levels match. */
+  loudnorm: boolean
 }
 
 /** OpenAI audio-speech request body; only the fields the bridge consumes. */
@@ -51,21 +65,6 @@ interface SpeechRequest {
   input?: unknown
   voice?: unknown
   speed?: unknown
-}
-
-/**
- * Detect the GPT-SoVITS synthesis language for one piece of text.
- * Kana → Japanese, hangul → Korean, han → Chinese, everything else → English.
- * A Japanese-trained voice reading Chinese goes through GPT-SoVITS
- * cross-lingual synthesis; a slight accent is expected.
- * @param text the text to be synthesized.
- * @returns the GPT-SoVITS `text_lang` value.
- */
-export function detectLang(text: string): string {
-  if (/\p{Script=Hiragana}|\p{Script=Katakana}/u.test(text)) return 'ja'
-  if (/\p{Script=Hangul}/u.test(text)) return 'ko'
-  if (/\p{Script=Han}/u.test(text)) return 'zh'
-  return 'en'
 }
 
 /**
@@ -87,7 +86,7 @@ function readBody(req: IncomingMessage, limit = 512 * 1024): Promise<Buffer> {
       }
       chunks.push(chunk)
     })
-    req.on('end', () => resolve(Buffer.concat(chunks)))
+    req.on('end', () => { resolve(Buffer.concat(chunks)) })
     req.on('error', reject)
   })
 }
@@ -107,21 +106,17 @@ function writeJson(res: ServerResponse, code: number, payload: unknown): void {
 /**
  * Transcode wav bytes to mp3 with the bundled ffmpeg.
  * @param ffmpegPath absolute ffmpeg executable path.
- * @param wav the wav bytes produced by GPT-SoVITS.
+ * @param wav the wav bytes produced by the engine.
+ * @param loudnorm whether to normalize loudness to -16 LUFS.
  * @returns the mp3 bytes.
  */
-function ffmpegToMp3(ffmpegPath: string, wav: Buffer): Promise<Buffer> {
+function ffmpegToMp3(ffmpegPath: string, wav: Buffer, loudnorm: boolean): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const ff = spawn(ffmpegPath, [
-      '-hide_banner', '-loglevel', 'error',
-      '-f', 'wav', '-i', 'pipe:0',
-      '-codec:a', 'libmp3lame', '-b:a', '128k',
-      '-f', 'mp3', 'pipe:1',
-    ], { windowsHide: true })
+    const ff = spawn(ffmpegPath, ffmpegArgs(loudnorm), { windowsHide: true })
     const out: Buffer[] = []
     let stderr = ''
     ff.stdout.on('data', (chunk: Buffer) => out.push(chunk))
-    ff.stderr.on('data', (chunk: Buffer) => { stderr += chunk })
+    ff.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8') })
     ff.on('error', reject)
     ff.on('close', (code) => {
       const mp3 = Buffer.concat(out)
@@ -180,7 +175,10 @@ async function handle(cfg: BridgeConfig, req: IncomingMessage, res: ServerRespon
       await fetch(cfg.gptsovitsUrl, { signal: AbortSignal.timeout(1500) })
       gptsovitsReachable = true
     } catch { /* api_v2 not up yet; the health answer is still valid */ }
-    writeJson(res, 200, { ok: true, gptsovitsReachable, voices: [...cfg.voices.keys()], defaultVoice: cfg.defaultVoice })
+    writeJson(res, 200, {
+      ok: true, gptsovitsReachable, indexttsUrl: cfg.indexttsUrl,
+      voices: [...cfg.voices.keys()], defaultVoice: cfg.defaultVoice,
+    })
     return true
   }
 
@@ -198,10 +196,17 @@ async function handle(cfg: BridgeConfig, req: IncomingMessage, res: ServerRespon
       return true
     }
     const textLang = profile.textLang !== '' && profile.textLang !== 'auto' ? profile.textLang : detectLang(text)
+    const availability: EngineAvailability = {
+      indexttsUrl: cfg.indexttsUrl,
+      indexRefAudioPath: profile.indexRefAudioPath,
+    }
+    const engine = resolveEngine(profile.engine, textLang, availability)
     const speed = Math.min(2, Math.max(0.5, typeof body.speed === 'number' ? body.speed : 1))
-    const wav = await gptsovitsTts(cfg, text, profile, textLang, speed)
-    if (wav.length < 64) throw new Error('GPT-SoVITS produced empty audio')
-    const mp3 = await ffmpegToMp3(cfg.ffmpegPath, wav)
+    const wav = engine === 'indextts'
+      ? await indexttsTts(cfg.indexttsUrl, text, profile.indexRefAudioPath, textLang, cfg.requestTimeoutMs)
+      : await gptsovitsTts(cfg, text, profile, textLang, speed)
+    if (wav.length < 64) throw new Error(`${engine} produced empty audio`)
+    const mp3 = await ffmpegToMp3(cfg.ffmpegPath, wav, cfg.loudnorm)
     res.writeHead(200, { 'content-type': 'audio/mpeg', 'content-length': mp3.length })
     res.end(mp3)
     return true
@@ -230,6 +235,7 @@ export function startBridge(ctx: Context, cfg: BridgeConfig): () => void {
     ctx.logger.error('gptsovits-voice: bridge server error: %s', error.message)
   })
   server.listen(cfg.port, cfg.host)
-  ctx.logger.info('gptsovits-voice: bridge on http://%s:%d/v1/audio/speech (voices: %s)', cfg.host, String(cfg.port), [...cfg.voices.keys()].join(', ') || 'none')
+  ctx.logger.info('gptsovits-voice: bridge on http://%s:%d/v1/audio/speech (voices: %s; indextts: %s)',
+    cfg.host, String(cfg.port), [...cfg.voices.keys()].join(', ') || 'none', cfg.indexttsUrl === '' ? 'off' : cfg.indexttsUrl)
   return () => { server.close() }
 }
