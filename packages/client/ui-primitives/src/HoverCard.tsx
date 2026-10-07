@@ -63,6 +63,16 @@ export function HoverCard({
   const closing = phase === 'closing'
   const [pos, setPos] = useState<{ left: number; top: number; width?: number; maxHeight?: number } | null>(null)
   const positioned = pos !== null
+
+  // Scroll tracking calls place() on every capture-phase scroll event; skipping
+  // writes whose coordinates did not change keeps that stream render-free.
+  const updatePos = useCallback((next: { left: number; top: number; width?: number; maxHeight?: number }) => {
+    setPos(current => current !== null
+      && current.left === next.left && current.top === next.top
+      && current.width === next.width && current.maxHeight === next.maxHeight
+      ? current
+      : next)
+  }, [])
   const [copied, setCopied] = useState(false)
   const [suppressed, setSuppressed] = useState(false)
 
@@ -149,7 +159,7 @@ export function HoverCard({
         const below = Math.max(0, window.innerHeight - belowTop - VIEWPORT_MARGIN)
         const onTop = above >= Math.min(PREVIEW_MAX_HEIGHT, below)
         const maxHeight = Math.min(PREVIEW_MAX_HEIGHT, onTop ? above : below)
-        setPos({
+        updatePos({
           left: Math.max(VIEWPORT_MARGIN, Math.min(bounds.left + PREVIEW_INSET, window.innerWidth - width - VIEWPORT_MARGIN)),
           top: onTop ? Math.max(topMargin, r.top - Math.min(h, maxHeight) - ANCHOR_GAP) : belowTop,
           width, maxHeight,
@@ -165,7 +175,7 @@ export function HoverCard({
         const below = Math.max(0, window.innerHeight - belowTop - VIEWPORT_MARGIN)
         const onTop = height > below && above > below
         const maxHeight = onTop ? above : below
-        setPos({
+        updatePos({
           left: Math.max(VIEWPORT_MARGIN, Math.min(r.left, window.innerWidth - width - VIEWPORT_MARGIN)),
           top: onTop ? r.top - ANCHOR_GAP - Math.min(height, maxHeight) : belowTop,
           width, maxHeight,
@@ -173,7 +183,7 @@ export function HoverCard({
         return
       }
       const top = r.top + h > window.innerHeight - VIEWPORT_MARGIN ? window.innerHeight - h - VIEWPORT_MARGIN : r.top
-      setPos({ left: r.right + ANCHOR_GAP, top })
+      updatePos({ left: r.right + ANCHOR_GAP, top })
     }
     place()
     const observer = (variant === 'preview' || inline) && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(place) : null

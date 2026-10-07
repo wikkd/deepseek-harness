@@ -262,6 +262,7 @@
 }
 
 .actionButton {
+  position: relative;
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
@@ -275,6 +276,14 @@
   color: var(--dsw-alias-label-secondary);
   background: transparent;
   cursor: pointer;
+}
+
+/* Invisible halo: the inline box stays 20x16, but the pointer target grows
+   past it for precision without disturbing the line layout. */
+.actionButton::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
 }
 
 .actionButton:hover {

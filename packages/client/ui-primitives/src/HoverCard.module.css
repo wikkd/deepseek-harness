@@ -5,9 +5,11 @@
   display: block;
 }
 
-/* The preview remains hit-testable so pointer entry cancels the grace close. */
+/* The preview remains hit-testable so pointer entry cancels the grace close.
+ * Always-dark surface in both themes (same strategy as the toast): consumers
+ * may assume light-on-dark text without a theme switch. */
 .card {
-  --dsw-hovercard-bg: #2C2C2E;
+  --dsw-hovercard-bg: var(--dsw-static-neutral-bluish-850);
   position: fixed;
   z-index: 100;
   box-sizing: border-box;
@@ -34,7 +36,7 @@
 }
 
 .copied {
-  color: #FFFFFF;
+  color: var(--dsw-static-neutral-bluish-00);
   font-size: 14px;
   line-height: 20px;
   text-align: center;

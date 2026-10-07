@@ -54,6 +54,6 @@ button.pill[aria-expanded='true'] {
 }
 
 .sep {
-  color: var(--dsw-alias-separator-primary);
+  color: var(--dsw-alias-label-caption);
   margin: 0 6px;
 }
