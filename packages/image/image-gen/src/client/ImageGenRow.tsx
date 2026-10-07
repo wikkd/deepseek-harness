@@ -70,18 +70,15 @@ function imageReferences(content: readonly unknown[]): ImageAttachmentRef[] | nu
 
 /**
  * Derive the settled card from the result block and the call's own arguments.
+ * The arguments arrive as a streaming view, not a plain object: read `prompt`
+ * through its text/complete API, mirroring the shared tool-row models.
  * @param block - the settled Tool result node.
  * @returns the card material, or null when the shape does not fit the card.
  */
 function imageGenCard(block: SettledBlock): ImageGenCard | null {
   if (block.isError) return null
-  const rawArgs: unknown = block.args
-  const prompt = typeof rawArgs === 'object' && rawArgs !== null
-    && typeof (rawArgs as Record<string, unknown>).prompt === 'string'
-    && ((rawArgs as Record<string, unknown>).prompt as string).trim() !== ''
-    ? ((rawArgs as Record<string, unknown>).prompt as string).trim()
-    : null
-  if (prompt === null) return null
+  const prompt = block.args.complete('prompt') ? block.args.text('prompt')?.trim() : undefined
+  if (prompt === undefined || prompt === '') return null
   const refs = imageReferences(block.content)
   if (refs === null) return null
   const text = block.content
