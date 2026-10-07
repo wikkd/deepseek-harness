@@ -18,6 +18,20 @@ function turnOf(node: ChatNode): number | undefined {
   return location.kind === 'turn' || location.kind === 'step' ? location.turn.turn : undefined
 }
 
+/**
+ * Whether a settled Tool call's result carries a picture the user must see:
+ * the card is the reply's substance, so it renders in the main flow instead of
+ * the collapsible process body. A running call still folds behind the process
+ * title, and an interrupted synthetic result (empty content) stays there too.
+ * @param node - the chat node in question.
+ * @returns true when the node is a settled tool call whose content holds an image block.
+ */
+export function carriesImageResult(node: ChatNode): boolean {
+  if (node.kind !== 'tool-call') return false
+  const { root } = node.data
+  return 'kind' in root && !root.isError && root.content.some(block => block.type === 'image')
+}
+
 function reasoning(node: ChatNode): boolean {
   return node.kind === 'assistant-step'
     && node.data.blocks.some(block => block.kind === 'reasoning' && block.text.trim() !== '')
@@ -162,7 +176,7 @@ class TurnGroups {
       const node = readNode(input, key)
       // Both Definitions retain the same message id; only its question presentation renders.
       if (node.kind === 'turn-trigger' && replies.has(node.id)) continue
-      if (INDEPENDENT.has(node.kind)) {
+      if (INDEPENDENT.has(node.kind) || carriesImageResult(node)) {
         flush(true)
         emit(key, { kind: 'node', key })
       } else if (node.kind === 'turn-process') {

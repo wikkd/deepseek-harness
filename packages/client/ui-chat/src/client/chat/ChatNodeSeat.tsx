@@ -7,6 +7,7 @@ import type { ChatNode } from '../contract/chat-nodes.ts'
 import type { ChatNodeStore } from '../contract/snapshot.ts'
 import { TURN_PROCESS_INDEPENDENT_KINDS, turnProcessAlwaysOpen } from '../contract/turn-process.ts'
 import { storedTurnProcessEntry } from '../stores.ts'
+import { carriesImageResult } from '../conversation-nodes/process-groups.ts'
 import { useSearchableHidden } from './searchable-hidden.ts'
 import css from './ChatView.module.css'
 
@@ -78,6 +79,9 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
   const processMember = routedNode !== undefined
     && processWindowReady
     && !TURN_PROCESS_INDEPENDENT_KINDS.has(routedNode.kind)
+    // A settled picture-bearing call renders in the main flow (the grouping
+    // emits it there), so it never hides behind the process disclosure.
+    && !carriesImageResult(routedNode)
     && routedNode.anchorSeq >= processSpec.processStartSeq
     && (liveProcess || processSpec.answerAnchorSeq === null || routedNode.anchorSeq < processSpec.answerAnchorSeq
       || (groupPart === 'reasoning' && routedNode.kind === 'assistant-step' && routedNode.data.step === processSpec.answerStep))
