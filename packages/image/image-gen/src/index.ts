@@ -349,6 +349,7 @@ function registerTool(ctx: Context, resolved: ResolvedConfig, sidecar: ComfyuiSi
               width: { type: 'integer', required: true },
               height: { type: 'integer', required: true },
               name: { type: 'string' },
+              hostPath: { type: 'string' },
             },
           },
         },
@@ -401,6 +402,7 @@ function registerTool(ctx: Context, resolved: ResolvedConfig, sidecar: ComfyuiSi
         }
         throw new Error(`the provider returned bytes that do not decode as a supported image (${error.code})`, { cause: error })
       }
+      const hostPath = attachments.imageHostPath(ref)
 
       return {
         prompt,
@@ -411,6 +413,9 @@ function registerTool(ctx: Context, resolved: ResolvedConfig, sidecar: ComfyuiSi
           width: ref.width,
           height: ref.height,
           ...ref.name === undefined ? {} : { name: ref.name },
+          // The provider-owned durable object location. The client opens it in
+          // the sidebar preview on click; undefined on non-host-file backends.
+          ...hostPath === undefined ? {} : { hostPath },
         },
       }
     },

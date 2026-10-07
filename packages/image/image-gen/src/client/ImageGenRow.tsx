@@ -30,6 +30,8 @@ const IMAGE_MEDIA_TYPES: ReadonlySet<string> = new Set([
 interface ImageGenCard {
   prompt: string
   images: readonly ImageAttachmentRef[]
+  /** The provider-owned durable object location; undefined on non-host-file backends. */
+  hostPath: string | undefined
   text: string
 }
 
@@ -45,18 +47,21 @@ function positiveInteger(value: unknown): value is number {
  * @param content - the settled result's content blocks.
  * @returns the references in order, or null when none is well-formed.
  */
-function imageReferences(content: readonly unknown[]): ImageAttachmentRef[] | null {
+function imageReferences(content: readonly unknown[]): { refs: ImageAttachmentRef[]; hostPath: string | undefined } | null {
   const refs: ImageAttachmentRef[] = []
+  let hostPath: string | undefined
   for (const part of content) {
     if (typeof part !== 'object' || part === null) continue
     const { type, attachment } = part as { type?: unknown; attachment?: unknown }
     if (type !== 'image') continue
     if (typeof attachment !== 'object' || attachment === null || Array.isArray(attachment)) return null
-    const { attachmentId, mediaType, bytes, width, height, name } = attachment as Record<string, unknown>
+    const { attachmentId, mediaType, bytes, width, height, name, hostPath: wireHostPath } = attachment as Record<string, unknown>
     if (typeof attachmentId !== 'string' || attachmentId === '') return null
     if (typeof mediaType !== 'string' || !IMAGE_MEDIA_TYPES.has(mediaType)) return null
     if (!positiveInteger(bytes) || !positiveInteger(width) || !positiveInteger(height)) return null
     if (name !== undefined && typeof name !== 'string') return null
+    if (wireHostPath !== undefined && typeof wireHostPath !== 'string') return null
+    if (wireHostPath !== undefined) hostPath = wireHostPath
     refs.push({
       attachmentId: attachmentId as ImageAttachmentRef['attachmentId'],
       mediaType: mediaType as ImageMediaType,
@@ -66,7 +71,7 @@ function imageReferences(content: readonly unknown[]): ImageAttachmentRef[] | nu
       ...name === undefined ? {} : { name },
     })
   }
-  return refs.length > 0 ? refs : null
+  return refs.length > 0 ? { refs, hostPath } : null
 }
 
 /**
@@ -80,21 +85,23 @@ function imageGenCard(block: SettledBlock): ImageGenCard | null {
   if (block.isError) return null
   const prompt = block.args.complete('prompt') ? block.args.text('prompt')?.trim() : undefined
   if (prompt === undefined || prompt === '') return null
-  const refs = imageReferences(block.content)
-  if (refs === null) return null
+  const narrowed = imageReferences(block.content)
+  if (narrowed === null) return null
   const text = block.content
     .map((part) => typeof part === 'object' && part !== null && (part as { type?: unknown }).type === 'text'
       && typeof (part as { text?: unknown }).text === 'string' ? (part as { text: string }).text : '')
     .filter((text) => text !== '')
     .join('\n')
-  return { prompt, images: refs, text }
+  return { prompt, images: narrowed.refs, hostPath: narrowed.hostPath, text }
 }
 
 /** One loaded picture: resolves the durable reference once, via the loader's peek cache when warm. */
-function Picture({ attachment, loadImage, alt }: {
+function Picture({ attachment, loadImage, alt, onOpen }: {
   attachment: ImageAttachmentRef
   loadImage: ImageGenRowProps['loadImage']
   alt: string
+  /** Present when the durable object has a host path: the click opens the sidebar preview. */
+  onOpen: (() => void) | undefined
 }) {
   const [src, setSrc] = useState<string | undefined>(() => loadImage.peek?.(attachment))
   useEffect(() => {
@@ -108,7 +115,11 @@ function Picture({ attachment, loadImage, alt }: {
     }
   }, [attachment, loadImage, src])
   if (src === undefined) return <div className={css.placeholder} data-image-gen-placeholder="" />
-  return <img className={css.picture} src={src} alt={alt} data-image-gen-picture="" />
+  return onOpen === undefined
+    ? <img className={css.picture} src={src} alt={alt} data-image-gen-picture="" />
+    : <button type="button" className={css.button} title={alt} onClick={onOpen}>
+        <img className={css.picture} src={src} alt={alt} data-image-gen-picture="" />
+      </button>
 }
 
 /**
@@ -122,7 +133,7 @@ function Picture({ attachment, loadImage, alt }: {
  * @returns the card for the current call stage.
  */
 export function ImageGenRow(props: ImageGenRowProps) {
-  const { phase, block, loadImage, t } = props
+  const { phase, block, loadImage, openFile, t } = props
   if (phase !== 'result') {
     return <div data-image-gen-row="">{t('pending')}</div>
   }
@@ -139,10 +150,15 @@ export function ImageGenRow(props: ImageGenRowProps) {
   if (card === null) {
     return <div data-image-gen-row="">{t('failed')}</div>
   }
+  // A host-file-backed deployment carries the durable object location; the
+  // click opens it in the sidebar preview. Relative paths resolve beside the
+  // workspace root, so the absolute attachment path arrives as-is.
+  const openPreview = card.hostPath === undefined ? undefined : () => { openFile(card.hostPath as string) }
   return (
     <div className={css.row} data-image-gen-row="" data-image-gen-picture-only="">
       {card.images.map((attachment) => (
-        <Picture key={attachment.attachmentId} attachment={attachment} loadImage={loadImage} alt={t('imageAlt')} />
+        <Picture key={attachment.attachmentId} attachment={attachment} loadImage={loadImage}
+          alt={t('imageAlt')} onOpen={openPreview} />
       ))}
     </div>
   )
