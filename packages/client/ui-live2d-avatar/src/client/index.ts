@@ -1,10 +1,14 @@
 /**
  * 小圆 Live2D desktop pet, browser half. A draggable Madoka Kaname mascot floats
  * at the client's lower-right corner: idle motions and expressions cycle on a
- * timer, clicking the character plays another one, and dragging repositions the
- * pet (persisted in localStorage). The Cubism core loads from the web app's
- * static directory before the Live2D runtime evaluates, and the model files
- * are served from the same directory.
+ * timer, clicking the character plays another one, dragging repositions the
+ * pet (persisted in localStorage), and a General-settings switch toggles the
+ * whole pet through the plugin's own settings namespace. While the TTS plugin
+ * plays a spoken reply, the playing element is tapped into the motion
+ * manager's lip-sync path, which drives the model's mouth.
+ *
+ * The Cubism core loads from the web app's static directory before the Live2D
+ * runtime evaluates, and the model files are served from the same directory.
  *
  * The build keeps the whole pixi stack in one artifact (`codeSplitting: false`
  * in this package's tsdown config — the plugin bundle route cannot serve
@@ -16,9 +20,29 @@
  * @module @deepseek-ai/dsh-client-ui-live2d-avatar/client
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
+// Type-only: the ctx.configForms Context merge. Cross-plugin collaboration
+// goes through the service, never a value import (client bundle purity gate).
+import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
+// Type-only: pulls the locale plugin's Context merge (ctx.locale).
+import type {} from '@deepseek-ai/dsh-client-locale/client'
+// Type-only: pulls the SlotRegistry service merge (ctx.slots).
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type { Cubism4InternalModel } from 'pixi-live2d-display-lipsyncpatch/cubism4'
+import { installLipSync } from './lip-sync.ts'
+import { en, zh, type PetSettingsKey } from './locales.ts'
+import { PetRow, type PetRowInjected } from './PetRow.tsx'
+import { PET_SETTINGS_NAMESPACE, PET_VISIBLE_DEFAULT, PET_VISIBLE_FIELD, type PetSettings } from '../pet-settings.ts'
 
-/** Services required by the browser half. */
-export const inject: string[] = []
+/** Services required by the browser half (settings transport + row surfaces). */
+export const inject: string[] = ['slots', 'locale', 'remote', 'configForms']
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** The desktop-pet settings row's copy. */
+    'settings.live2dAvatar': PetSettingsKey
+  }
+}
 
 /** Where the pet anchors and persists its position. */
 const PET_ID = 'dsh-live2d-avatar'
@@ -33,6 +57,8 @@ const AMBIENT_INTERVAL_MS = 9000
 const CLICK_SLOP_PX = 6
 /** The model's single motion group; indexes 0-8 address individual clips. */
 const MOTION_GROUP = 'Motion'
+/** Settings-row copy namespace owned by this plugin. */
+const SETTINGS_NS = 'settings.live2dAvatar'
 const STORAGE_KEY = 'dsh-live2d-avatar-position'
 
 interface StoredPosition {
@@ -72,10 +98,48 @@ function restorePosition(host: HTMLDivElement): void {
 }
 
 /**
- * Mount the desktop pet as one disposal-scoped effect.
+ * Mount the desktop pet, its settings row, and its visible preference.
  * @param ctx - Client root context.
  */
 export function apply(ctx: ClientContext): void {
+  const form: ConfigForm<PetSettings> = ctx.configForms.get<PetSettings>(PET_SETTINGS_NAMESPACE)
+
+  ctx.effect(() => ctx.locale.register(SETTINGS_NS, { zh, en }), 'ui-live2d-avatar: settings row dictionaries')
+
+  // The visible preference: adopted from the settings form, mirrored to the
+  // settings row through this snapshot, and applied to the mounted host.
+  let visible = form.getSnapshot().value?.visible ?? PET_VISIBLE_DEFAULT
+  const rowListeners = new Set<() => void>()
+  const visibleSnapshot: ObservableSnapshot<boolean> = {
+    getSnapshot: () => visible,
+    subscribe: (listener) => {
+      rowListeners.add(listener)
+      return () => { rowListeners.delete(listener) }
+    },
+  }
+  // Filled in by the mount effect once the host exists; preference flips that
+  // arrive before (or after) the pet is mounted are absorbed there.
+  let applyVisibility: (() => void) | undefined
+
+  ctx.effect(() => form.subscribe(() => {
+    const next = form.getSnapshot().value?.visible ?? PET_VISIBLE_DEFAULT
+    if (next === visible) return
+    visible = next
+    applyVisibility?.()
+    for (const listener of rowListeners) listener()
+  }), 'ui-live2d-avatar: visible preference adoption')
+
+  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+    name: 'settings.general.item',
+    id: 'live2d-avatar',
+    order: 30,
+    locale: SETTINGS_NS,
+    inject: (): PetRowInjected => ({
+      hooks: { visible: visibleSnapshot },
+      setVisible: (next) => { void form.set(PET_VISIBLE_FIELD, next) },
+    }),
+  }, PetRow))
+
   ctx.effect(() => {
     if (typeof document === 'undefined') return () => {}
     const host = document.createElement('div')
@@ -91,6 +155,16 @@ export function apply(ctx: ClientContext): void {
     let disposed = false
     let teardown: (() => void) | undefined
     let bootError: ((message: string) => void) | undefined
+    let app: { ticker: { start(): void; stop(): void } } | undefined
+
+    const applyPetVisibility = (): void => {
+      host.style.display = visible ? '' : 'none'
+      if (app === undefined) return
+      if (visible) app.ticker.start()
+      else app.ticker.stop()
+    }
+    applyVisibility = applyPetVisibility
+    applyPetVisibility()
 
     const boot = (async () => {
       await loadCubismCore()
@@ -102,24 +176,49 @@ export function apply(ctx: ClientContext): void {
       if (disposed) return
       const canvas = document.createElement('canvas')
       canvas.style.cssText = 'width: 100%; height: 100%; display: block;'
-      const app = new PIXI.Application({
+      const petApp = new PIXI.Application({
         view: canvas, backgroundAlpha: 0, autoDensity: true, resolution: 2, resizeTo: host,
       })
       host.appendChild(canvas)
       const model = await Live2DModel.from(MODEL_URL, { autoInteract: false })
       if (disposed) {
         model.destroy()
-        app.destroy(true)
+        petApp.destroy(true)
         return
       }
+      app = petApp
+      applyPetVisibility()
       model.scale.set(PET_HEIGHT / model.internalModel.height)
       // Hug the pet to the container's bottom edge so it "stands" on it.
-      model.x = (app.screen.width - model.width) / 2
-      model.y = app.screen.height - model.height
-      app.stage.addChild(model)
+      model.x = (petApp.screen.width - model.width) / 2
+      model.y = petApp.screen.height - model.height
+      petApp.stage.addChild(model)
+
+      // Feed the playing audio into the model's own lip-sync path: while
+      // `currentAudio` is set, the motion manager reads `currentAnalyzer`
+      // every update and writes the mouth parameter over the idle motions
+      // (`internalModel.lipSync` defaults to true). The downcast to the
+      // Cubism4 face is safe here — every cubism4 model builds one — and is
+      // what exposes the typed `currentAudio`/`currentAnalyzer` pair.
+      const internalModel = model.internalModel as Cubism4InternalModel
+      let speaking = false
+      const speech = installLipSync({
+        tap: (element, analyser) => {
+          speaking = true
+          internalModel.motionManager.currentAudio = element
+          internalModel.motionManager.currentAnalyzer = analyser
+        },
+        untap: () => {
+          speaking = false
+          delete internalModel.motionManager.currentAudio
+          delete internalModel.motionManager.currentAnalyzer
+        },
+      })
 
       const random = (bound: number): number => Math.floor(Math.random() * bound)
       const play = (): void => {
+        // Speech owns the mouth; queued idle motions would fight it.
+        if (speaking) return
         void model.motion(MOTION_GROUP, random(9))
         const expressions = model.internalModel.motionManager?.expressionManager
         if (expressions !== undefined && Math.random() < 0.6) {
@@ -174,11 +273,12 @@ export function apply(ctx: ClientContext): void {
 
       teardown = () => {
         window.clearInterval(ambient)
+        speech.dispose()
         host.removeEventListener('pointerdown', onPointerDown)
         host.removeEventListener('pointermove', onPointerMove)
         host.removeEventListener('pointerup', onPointerUp)
         model.destroy()
-        app.destroy(true, { children: true, texture: true })
+        petApp.destroy(true, { children: true, texture: true })
       }
     })()
     boot.catch((error: unknown) => {
@@ -190,6 +290,7 @@ export function apply(ctx: ClientContext): void {
     return () => {
       disposed = true
       bootError = undefined
+      applyVisibility = undefined
       teardown?.()
       host.remove()
     }
