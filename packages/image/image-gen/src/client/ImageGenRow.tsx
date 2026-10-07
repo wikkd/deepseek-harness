@@ -112,6 +112,11 @@ function Picture({ attachment, loadImage, alt }: {
 
 /**
  * The keyed `generate_image` Tool card.
+ *
+ * A settled success renders the picture alone in the main flow — the prompt
+ * and envelope text stay in the folded process record, and the chat prose
+ * around the card already tells the story. Failures keep their message: an
+ * error row is the only evidence the call happened.
  * @param props - the Tool view's owner currency: stage, block, loader, and locale seat.
  * @returns the card for the current call stage.
  */
@@ -134,12 +139,10 @@ export function ImageGenRow(props: ImageGenRowProps) {
     return <div data-image-gen-row="">{t('failed')}</div>
   }
   return (
-    <div data-image-gen-row="">
-      <div data-image-gen-prompt="">{card.prompt}</div>
+    <div data-image-gen-row="" data-image-gen-picture-only="">
       {card.images.map((attachment) => (
         <Picture key={attachment.attachmentId} attachment={attachment} loadImage={loadImage} alt={t('imageAlt')} />
       ))}
-      {card.text === '' ? undefined : <div data-image-gen-note="">{card.text}</div>}
     </div>
   )
 }
