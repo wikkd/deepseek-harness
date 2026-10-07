@@ -43,12 +43,20 @@ function styleInjectionModule(
   const source = [
     `const css = ${JSON.stringify(css)};`,
     `const tagId = ${JSON.stringify(`${id}/${basename(fileId)}`)};`,
-    'if (typeof document !== \'undefined\' && document.querySelector(\'style[data-plugin-css=\' + JSON.stringify(tagId) + \']\') === null) {',
-    '  const tag = document.createElement(\'style\');',
-    `  tag.dataset.plugin = ${JSON.stringify(id)};`,
-    '  tag.dataset.pluginCss = tagId;',
-    '  tag.textContent = css;',
-    '  document.head.appendChild(tag);',
+    'if (typeof document !== \'undefined\') {',
+    // A re-materialized factory (invalidation, HMR) meets the previous
+    // generation's tag: keeping the stale sheet would leave the plugin styled
+    // by its old CSS, so refresh in place instead of skipping.
+    '  const tag = document.querySelector(\'style[data-plugin-css=\' + JSON.stringify(tagId) + \']\');',
+    '  if (tag === null) {',
+    '    const created = document.createElement(\'style\');',
+    `    created.dataset.plugin = ${JSON.stringify(id)};`,
+    '    created.dataset.pluginCss = tagId;',
+    '    created.textContent = css;',
+    '    document.head.appendChild(created);',
+    '  } else if (tag.textContent !== css) {',
+    '    tag.textContent = css;',
+    '  }',
     '}',
   ]
   source.push(classMap === undefined ? 'export {};' : `export default ${JSON.stringify(classMap)};`)
