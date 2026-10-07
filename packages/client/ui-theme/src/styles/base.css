@@ -10,6 +10,12 @@
   --ds-font-family-code: 'SF Mono', 'JetBrains Mono', 'Fira Code', Consolas,
     'Liberation Mono', Menlo, Courier, 'PingFang SC', 'Microsoft YaHei';
   --ds-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  /* Non-linear interaction curves: entrances decelerate into place, exits
+     accelerate out, and `spring` adds a slight overshoot for small travel
+     (toggle thumbs, sliding indicators). Exits stay shorter than entrances. */
+  --ds-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ds-ease-in: cubic-bezier(0.55, 0, 1, 0.45);
+  --ds-ease-spring: cubic-bezier(0.34, 1.45, 0.64, 1);
   --ds-transition-duration: 0.2s;
   --ds-transition-duration-fast: 0.1s;
   --ds-transition-duration-slow: 0.3s;

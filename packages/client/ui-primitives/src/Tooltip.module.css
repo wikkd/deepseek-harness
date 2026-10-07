@@ -19,7 +19,7 @@
   /* Unbreakable tokens (URLs, paths) must not push past max-width. */
   overflow-wrap: break-word;
   pointer-events: none;
-  animation: tooltip-in 150ms var(--ds-ease-in-out);
+  animation: tooltip-in 140ms var(--ds-ease-out);
 }
 
 .bubble[data-portal] { z-index: 1100; }
@@ -53,7 +53,11 @@
 }
 
 @keyframes tooltip-in {
-  from { opacity: 0; }
+  from {
+    opacity: 0;
+    /* Independent `scale` composes with the per-side `transform` above. */
+    scale: 0.96;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -18,6 +18,14 @@
   border-radius: var(--dsw-radius-lg);
   background: var(--dsw-hovercard-bg);
   box-shadow: var(--dsw-shadow-lv3);
+  transition: opacity 140ms var(--ds-ease-out), scale 140ms var(--ds-ease-out);
+}
+
+@starting-style {
+  .card {
+    opacity: 0;
+    scale: 0.97;
+  }
 }
 
 .copyable {
@@ -62,15 +70,21 @@
   color: var(--dsw-alias-label-primary);
   box-shadow: var(--dsw-elevation-panel);
   opacity: 1;
-  transition: opacity var(--dsh-hover-preview-fade) linear;
+  transition:
+    opacity var(--dsh-hover-preview-fade) var(--ds-ease-out),
+    scale var(--dsh-hover-preview-fade) var(--ds-ease-out);
 }
 
 @starting-style {
-  .preview { opacity: 0; }
+  .preview {
+    opacity: 0;
+    scale: 0.98;
+  }
 }
 
 .preview[data-closing] {
   opacity: 0;
+  scale: 0.98;
   pointer-events: none;
 }
 

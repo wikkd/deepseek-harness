@@ -14,6 +14,7 @@
   corner-shape: round;
   background: var(--dsw-alias-border-l3);
   cursor: pointer;
+  transition: background-color 160ms var(--ds-ease-out);
 }
 
 .switch[aria-checked='true'] {
@@ -37,7 +38,7 @@
   border-radius: 50%;
   corner-shape: round;
   background: var(--dsw-alias-label-primary-foreground);
-  transition: transform 120ms ease;
+  transition: transform 180ms var(--ds-ease-spring);
 }
 
 .switch[aria-checked='false'] .thumb {
@@ -46,4 +47,14 @@
 
 .switch[aria-checked='true'] .thumb {
   transform: translateX(16px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .switch {
+    transition: none;
+  }
+
+  .thumb {
+    transition: none;
+  }
 }

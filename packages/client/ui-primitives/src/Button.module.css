@@ -13,6 +13,22 @@
   color: var(--dsw-alias-label-primary);
   background: transparent;
   padding: 0 14px;
+  scale: 1;
+  transition: background-color 120ms ease, scale 140ms var(--ds-ease-out);
+}
+
+.button:active:not(:disabled) {
+  scale: 0.98;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button {
+    transition: background-color 120ms ease;
+  }
+
+  .button:active:not(:disabled) {
+    scale: 1;
+  }
 }
 
 .button:disabled {

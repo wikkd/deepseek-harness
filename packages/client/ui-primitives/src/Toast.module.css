@@ -33,7 +33,7 @@
   box-shadow: var(--dsw-shadow-lv3);
   transform: translateX(-50%);
   animation:
-    dsh-toast-in 160ms ease-out,
+    dsh-toast-in 200ms var(--ds-ease-out),
     dsh-toast-fade 1000ms ease var(--dsh-toast-hold, 3000ms) forwards;
 }
 
