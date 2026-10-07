@@ -836,3 +836,10 @@
 .floatResize:hover::after {
   border-color: var(--dsw-alias-label-tertiary);
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .dockScrim,
+  .dockHintCard {
+    animation: none;
+  }
+}

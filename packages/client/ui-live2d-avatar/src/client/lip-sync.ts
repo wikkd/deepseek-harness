@@ -97,8 +97,8 @@ export function installLipSync(hooks: LipSyncHooks): LipSyncDriver {
   }
 
   const tracked = new Proxy(native, {
-    construct(target, args) {
-      const element: HTMLAudioElement = Reflect.construct(target, args)
+    construct(target, args, newTarget) {
+      const element: HTMLAudioElement = Reflect.construct(target, args, newTarget)
       element.addEventListener('play', onPlay)
       element.addEventListener('pause', onStop)
       element.addEventListener('ended', onStop)

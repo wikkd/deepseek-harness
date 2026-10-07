@@ -51,6 +51,7 @@ function FileThumbnail({ url, path, size, t }: {
   if (url === undefined || failed) return <FileTypeIcon path={path} size={size} />
   return <img className={css.fileThumbnail} src={url}
     alt={t('presented.imageAlt', { name: basename(path) })}
+    loading="lazy" decoding="async"
     onError={() => { setFailed(true) }} draggable={false} />
 }
 

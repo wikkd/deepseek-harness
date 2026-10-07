@@ -33,7 +33,10 @@ export function ConversationContent(props: ConversationContentProps) {
     sessionId === undefined ? undefined : snapshot.get(sessionId)?.pendingInteraction)
   const inputState = useInput(s => s)
   const cwd = useSessions(s => sessionId === undefined ? undefined : s.byId[sessionId]?.cwd)
-  const workspaces = useWorkspaces(s => s)
+  // Narrowed to the two consumed fields: an unrelated workspaces-store update
+  // no longer reruns the composer slot chain below.
+  const workspaceItems = useWorkspaces(s => s.items)
+  const workspacePhase = useWorkspaces(s => s.phase)
   // A plugin this package cannot import (ui-model-selection) says this session cannot
   // send; its reason is already localized by whoever raised it.
   const composerBlock = useComposerBlock(block => block)
@@ -68,8 +71,8 @@ export function ConversationContent(props: ConversationContentProps) {
 
   const sessionWorkspace = sessionId === undefined
     ? undefined
-    : workspaces.items.find(workspace => workspace.sessionIds.includes(sessionId))
-  const pendingWorkspace = workspaces.items.find(
+    : workspaceItems.find(workspace => workspace.sessionIds.includes(sessionId))
+  const pendingWorkspace = workspaceItems.find(
     workspace => workspace.workspaceId === pendingWorkspaceId,
   )
 
@@ -78,10 +81,10 @@ export function ConversationContent(props: ConversationContentProps) {
   useEffect(() => {
     if (pendingWorkspaceId === undefined) return
     if (sessionWorkspace?.workspaceId === pendingWorkspaceId
-      || (workspaces.phase === 'ready' && pendingWorkspace === undefined)) {
+      || (workspacePhase === 'ready' && pendingWorkspace === undefined)) {
       setPendingWorkspaceId(undefined)
     }
-  }, [pendingWorkspaceId, sessionWorkspace?.workspaceId, workspaces.phase, pendingWorkspace])
+  }, [pendingWorkspaceId, sessionWorkspace?.workspaceId, workspacePhase, pendingWorkspace])
 
   const zone: InputZone | undefined =
     session === undefined || inputState === undefined ? undefined : { session, input: inputState }
@@ -100,7 +103,7 @@ export function ConversationContent(props: ConversationContentProps) {
     ?? (sessionId === undefined
       ? undefined
       : sessionWorkspace?.title
-        ?? (workspaces.phase === 'ready' || cwd === undefined || cwd === ''
+        ?? (workspacePhase === 'ready' || cwd === undefined || cwd === ''
           ? undefined
           : workspaceLabel(cwd)))
   const chipTitle = storedChipTitle === undefined

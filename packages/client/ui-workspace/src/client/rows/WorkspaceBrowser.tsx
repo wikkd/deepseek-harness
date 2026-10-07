@@ -277,6 +277,24 @@ function EmptySessions({ rowState, onLeaveArchivedOnly, t }: Pick<SessionTreePro
   )
 }
 
+/**
+ * Slow wall-clock tick driving relative-time labels: without it, "just now"
+ * freezes at the rendering moment until an unrelated state change reruns the
+ * tree. Hidden tabs skip the tick (the labels catch up on return).
+ * @param intervalMs - tick cadence; coarse on purpose (labels are minutes).
+ * @returns a fresh epoch-ms value each tick.
+ */
+function useNowTick(intervalMs = 30_000): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') setNow(Date.now())
+    }, intervalMs)
+    return () => { window.clearInterval(timer) }
+  }, [intervalMs])
+  return now
+}
+
 /** The scrolling session tree; unmounting drops the sessions subscription and local row limits. */
 function SessionTree({
   list, useSessionStatus, startSession, open, workspaces, ungroupedSessionIds,
@@ -354,7 +372,7 @@ function SessionTree({
     if (collapsedSessionRows(group.sessions).rows.some(row => row.id === revealSessionId)) return
     setSessionLimits(limits => limits[revealGroup] === Infinity ? limits : { ...limits, [revealGroup]: Infinity })
   }, [groups, revealGroup, revealSessionId])
-  const now = Date.now()
+  const now = useNowTick()
   const commitSessionDrag = (activeDrag: DragState, over: NonNullable<DragState['over']>): void => {
     if (sessionDropCommitted.current) return
     sessionDropCommitted.current = true
@@ -668,7 +686,7 @@ function FlatList({
     const nextOrder = sessionDragOrder(sessionIds, rows, activeDrag, over)
     if (nextOrder !== undefined) setSessionOrder(FLAT_SESSION_ORDER_KEY, nextOrder)
   }
-  const now = Date.now()
+  const now = useNowTick()
   return (
     <div className={clsx(css.treeBody, css.wide)}>
       <AnimatedRows

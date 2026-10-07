@@ -393,6 +393,7 @@
 }
 
 .iconButton {
+  position: relative;
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -407,8 +408,24 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* Invisible halo keeps the 16px visual cell while the pointer target grows
+   past the 24px minimum (see ui-primitives JsonTree for the same pattern). */
+.iconButton::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+}
+
 .iconButton:hover {
   color: var(--dsw-alias-label-primary);
+}
+
+/* Keyboard focus indication for the focusable treeitem rows. */
+.sessionRow:focus-visible,
+.projectRow:focus-visible,
+.searchResultRow:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -1px;
 }
 
 /* Chevrons ride the caption grey (#ADB2B8); the folder glyph stays one step

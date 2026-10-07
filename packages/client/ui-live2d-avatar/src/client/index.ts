@@ -154,7 +154,6 @@ export function apply(ctx: ClientContext): void {
 
     let disposed = false
     let teardown: (() => void) | undefined
-    let bootError: ((message: string) => void) | undefined
     let app: { ticker: { start(): void; stop(): void } } | undefined
 
     const applyPetVisibility = (): void => {
@@ -177,125 +176,134 @@ export function apply(ctx: ClientContext): void {
       const canvas = document.createElement('canvas')
       canvas.style.cssText = 'width: 100%; height: 100%; display: block;'
       const petApp = new PIXI.Application({
-        view: canvas, backgroundAlpha: 0, autoDensity: true, resolution: 2, resizeTo: host,
+        view: canvas, backgroundAlpha: 0, autoDensity: true,
+        resolution: Math.min(window.devicePixelRatio || 1, 2), resizeTo: host,
       })
       host.appendChild(canvas)
-      // The automator falls back to a global `window.PIXI` when no ticker is
-      // given; this bundle inlines pixi and never exposes that global, so the
-      // explicit ticker is what keeps autoUpdate alive — without it the model
-      // freezes on its initial frame (every arm variant visible, no motions).
-      const model = await Live2DModel.from(MODEL_URL, {
-        autoHitTest: false, autoFocus: false, ticker: PIXI.Ticker.shared,
-      })
-      if (disposed) {
-        model.destroy()
-        petApp.destroy(true)
-        return
-      }
-      app = petApp
-      applyPetVisibility()
-      model.scale.set(PET_HEIGHT / model.internalModel.height)
-      // Hug the pet to the container's bottom edge so it "stands" on it.
-      model.x = (petApp.screen.width - model.width) / 2
-      model.y = petApp.screen.height - model.height
-      petApp.stage.addChild(model)
-
-      // Feed the playing audio into the model's own lip-sync path: while
-      // `currentAudio` is set, the motion manager reads `currentAnalyzer`
-      // every update and writes the mouth parameter over the idle motions
-      // (`internalModel.lipSync` defaults to true). The downcast to the
-      // Cubism4 face is safe here — every cubism4 model builds one — and is
-      // what exposes the typed `currentAudio`/`currentAnalyzer` pair.
-      const internalModel = model.internalModel as Cubism4InternalModel
-      let speaking = false
-      const speech = installLipSync({
-        tap: (element, analyser) => {
-          speaking = true
-          internalModel.motionManager.currentAudio = element
-          internalModel.motionManager.currentAnalyzer = analyser
-        },
-        untap: () => {
-          speaking = false
-          delete internalModel.motionManager.currentAudio
-          delete internalModel.motionManager.currentAnalyzer
-        },
-      })
-
-      const random = (bound: number): number => Math.floor(Math.random() * bound)
-      const play = (): void => {
-        // Speech owns the mouth; queued idle motions would fight it.
-        if (speaking) return
-        void model.motion(MOTION_GROUP, random(9))
-        const expressions = model.internalModel.motionManager?.expressionManager
-        if (expressions !== undefined && Math.random() < 0.6) {
-          expressions.setRandomExpression()
-        }
-      }
-      void model.motion(MOTION_GROUP, 0)
-      const ambient = window.setInterval(play, AMBIENT_INTERVAL_MS)
-
-      let dragging = false
-      let moved = 0
-      let offsetX = 0
-      let offsetY = 0
-      const onPointerDown = (event: PointerEvent): void => {
-        dragging = true
-        moved = 0
-        offsetX = event.clientX - host.offsetLeft
-        offsetY = event.clientY - host.offsetTop
-        host.style.cursor = 'grabbing'
-        host.setPointerCapture(event.pointerId)
-      }
-      const onPointerMove = (event: PointerEvent): void => {
-        if (!dragging) return
-        const left = event.clientX - offsetX
-        const top = event.clientY - offsetY
-        moved += Math.abs(event.movementX) + Math.abs(event.movementY)
-        host.style.left = `${Math.max(0, left)}px`
-        host.style.top = `${Math.max(0, top)}px`
-      }
-      const onPointerUp = (event: PointerEvent): void => {
-        if (!dragging) return
-        dragging = false
-        host.style.cursor = 'grab'
-        host.releasePointerCapture(event.pointerId)
-        if (moved <= CLICK_SLOP_PX) {
-          play()
+      try {
+        // The automator falls back to a global `window.PIXI` when no ticker is
+        // given; this bundle inlines pixi and never exposes that global, so the
+        // explicit ticker is what keeps autoUpdate alive — without it the model
+        // freezes on its initial frame (every arm variant visible, no motions).
+        // The application's own ticker (not Ticker.shared) keeps model updates
+        // under the same visibility gate as rendering.
+        const model = await Live2DModel.from(MODEL_URL, {
+          autoHitTest: false, autoFocus: false, ticker: petApp.ticker,
+        })
+        if (disposed) {
+          model.destroy()
+          petApp.destroy(true)
           return
         }
-        try {
-          window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-            x: host.offsetLeft, y: host.offsetTop,
-          }))
-        } catch {
-          // A private-mode localStorage refusal only costs the persisted position.
-        }
-      }
-      // Listeners live on the host div: the canvas fills it and pointer events
-      // bubble, while the ICanvas type's own event maps are WebGL-flavored.
-      host.addEventListener('pointerdown', onPointerDown)
-      host.addEventListener('pointermove', onPointerMove)
-      host.addEventListener('pointerup', onPointerUp)
+        app = petApp
+        applyPetVisibility()
+        model.scale.set(PET_HEIGHT / model.internalModel.height)
+        // Hug the pet to the container's bottom edge so it "stands" on it.
+        model.x = (petApp.screen.width - model.width) / 2
+        model.y = petApp.screen.height - model.height
+        petApp.stage.addChild(model)
 
-      teardown = () => {
-        window.clearInterval(ambient)
-        speech.dispose()
-        host.removeEventListener('pointerdown', onPointerDown)
-        host.removeEventListener('pointermove', onPointerMove)
-        host.removeEventListener('pointerup', onPointerUp)
-        model.destroy()
+        // Feed the playing audio into the model's own lip-sync path: while
+        // `currentAudio` is set, the motion manager reads `currentAnalyzer`
+        // every update and writes the mouth parameter over the idle motions
+        // (`internalModel.lipSync` defaults to true). The downcast to the
+        // Cubism4 face is safe here — every cubism4 model builds one — and is
+        // what exposes the typed `currentAudio`/`currentAnalyzer` pair.
+        const internalModel = model.internalModel as Cubism4InternalModel
+        let speaking = false
+        const speech = installLipSync({
+          tap: (element, analyser) => {
+            speaking = true
+            internalModel.motionManager.currentAudio = element
+            internalModel.motionManager.currentAnalyzer = analyser
+          },
+          untap: () => {
+            speaking = false
+            delete internalModel.motionManager.currentAudio
+            delete internalModel.motionManager.currentAnalyzer
+          },
+        })
+
+        const random = (bound: number): number => Math.floor(Math.random() * bound)
+        const play = (): void => {
+          // Hidden pets run no ticker; skip the blind motion/expression churn.
+          if (!visible || speaking) return
+          void model.motion(MOTION_GROUP, random(9))
+          const expressions = model.internalModel.motionManager?.expressionManager
+          if (expressions !== undefined && Math.random() < 0.6) {
+            expressions.setRandomExpression()
+          }
+        }
+        void model.motion(MOTION_GROUP, 0)
+        const ambient = window.setInterval(play, AMBIENT_INTERVAL_MS)
+
+        let dragging = false
+        let moved = 0
+        let offsetX = 0
+        let offsetY = 0
+        const onPointerDown = (event: PointerEvent): void => {
+          dragging = true
+          moved = 0
+          offsetX = event.clientX - host.offsetLeft
+          offsetY = event.clientY - host.offsetTop
+          host.style.cursor = 'grabbing'
+          host.setPointerCapture(event.pointerId)
+        }
+        const onPointerMove = (event: PointerEvent): void => {
+          if (!dragging) return
+          const left = event.clientX - offsetX
+          const top = event.clientY - offsetY
+          moved += Math.abs(event.movementX) + Math.abs(event.movementY)
+          // Same clamps as restorePosition: the pet never leaves the viewport.
+          host.style.left = `${Math.min(Math.max(0, left), Math.max(0, window.innerWidth - host.offsetWidth))}px`
+          host.style.top = `${Math.min(Math.max(0, top), Math.max(0, window.innerHeight - 80))}px`
+        }
+        const onPointerUp = (event: PointerEvent): void => {
+          if (!dragging) return
+          dragging = false
+          host.style.cursor = 'grab'
+          host.releasePointerCapture(event.pointerId)
+          if (moved <= CLICK_SLOP_PX) {
+            play()
+            return
+          }
+          try {
+            window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+              x: host.offsetLeft, y: host.offsetTop,
+            }))
+          } catch {
+            // A private-mode localStorage refusal only costs the persisted position.
+          }
+        }
+        // Listeners live on the host div: the canvas fills it and pointer events
+        // bubble, while the ICanvas type's own event maps are WebGL-flavored.
+        host.addEventListener('pointerdown', onPointerDown)
+        host.addEventListener('pointermove', onPointerMove)
+        host.addEventListener('pointerup', onPointerUp)
+
+        teardown = () => {
+          window.clearInterval(ambient)
+          speech.dispose()
+          host.removeEventListener('pointerdown', onPointerDown)
+          host.removeEventListener('pointermove', onPointerMove)
+          host.removeEventListener('pointerup', onPointerUp)
+          model.destroy()
+          petApp.destroy(true, { children: true, texture: true })
+        }
+      } catch (error) {
+        // A mid-boot failure (model 404, network) must not leave the app
+        // rendering a detached canvas: destroy it, then surface the cause.
         petApp.destroy(true, { children: true, texture: true })
+        throw error
       }
     })()
     boot.catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error)
       console.warn(`ui-live2d-avatar: pet unavailable (${message})`)
-      bootError?.(message)
     })
 
     return () => {
       disposed = true
-      bootError = undefined
       applyVisibility = undefined
       teardown?.()
       host.remove()
