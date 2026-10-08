@@ -10,8 +10,8 @@ import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import {
-  PET_ANCHOR_FIELD, PET_HEIGHT_FIELD, PET_LIP_SYNC_FIELD, PET_MOTION_RATE_FIELD,
-  PET_OPACITY_FIELD, PET_VISIBLE_FIELD,
+  PET_ANCHOR_FIELD, PET_EMOTION_FIELD, PET_HEIGHT_FIELD, PET_LIP_SYNC_FIELD,
+  PET_MOTION_RATE_FIELD, PET_OPACITY_FIELD, PET_VISIBLE_FIELD,
   type PetAnchor, type PetSettings,
 } from '../pet-settings.ts'
 import css from './PetRow.module.css'
@@ -126,6 +126,18 @@ export function PetRow({ useSettings, setField, resetPosition, t }: PetRowProps)
               { value: 'off', label: t('pet.lipSync.off') },
             ]}
             onChange={value => setField(PET_LIP_SYNC_FIELD, value === 'on')}
+          />
+        </div>
+        <div className={css.field}>
+          <span className={css.label}>{t('pet.emotion')}</span>
+          <SegmentedControl
+            id='live2d-pet-emotion' label={t('pet.emotion')}
+            value={settings.emotionExpressions ? 'on' : 'off'}
+            options={[
+              { value: 'on', label: t('pet.emotion.on') },
+              { value: 'off', label: t('pet.emotion.off') },
+            ]}
+            onChange={value => setField(PET_EMOTION_FIELD, value === 'on')}
           />
         </div>
         <div className={css.field}>

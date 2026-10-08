@@ -9,8 +9,8 @@ import type { Context, Volatile } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
 import {
-  PET_ANCHOR_DEFAULT, PET_HEIGHT_DEFAULT, PET_HEIGHT_MAX, PET_HEIGHT_MIN,
-  PET_LIP_SYNC_DEFAULT, PET_MOTION_RATE_DEFAULT, PET_OPACITY_DEFAULT,
+  PET_ANCHOR_DEFAULT, PET_EMOTION_DEFAULT, PET_HEIGHT_DEFAULT, PET_HEIGHT_MAX,
+  PET_HEIGHT_MIN, PET_LIP_SYNC_DEFAULT, PET_MOTION_RATE_DEFAULT, PET_OPACITY_DEFAULT,
   PET_OPACITY_MIN, PET_VISIBLE_DEFAULT,
 } from './pet-settings.ts'
 
@@ -30,6 +30,8 @@ export interface Config {
   motionRate: Volatile<'calm' | 'normal' | 'lively'>
   /** Whether the pet's mouth follows the spoken replies. */
   lipSync: Volatile<boolean>
+  /** Whether the pet mirrors each reply's classified emotion as an expression. */
+  emotionExpressions: Volatile<boolean>
 }
 
 /** Live desktop-pet preferences. */
@@ -40,6 +42,7 @@ export const Config = z.object({
   anchor: z.union(['left', 'right']).default(PET_ANCHOR_DEFAULT).volatile(),
   motionRate: z.union(['calm', 'normal', 'lively']).default(PET_MOTION_RATE_DEFAULT).volatile(),
   lipSync: z.boolean().default(PET_LIP_SYNC_DEFAULT).volatile(),
+  emotionExpressions: z.boolean().default(PET_EMOTION_DEFAULT).volatile(),
 })
 
 /**

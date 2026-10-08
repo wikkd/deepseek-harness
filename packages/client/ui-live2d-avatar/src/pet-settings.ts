@@ -21,6 +21,8 @@ export const PET_ANCHOR_FIELD = 'anchor'
 export const PET_MOTION_RATE_FIELD = 'motionRate'
 /** Whether the pet's mouth follows the spoken replies. */
 export const PET_LIP_SYNC_FIELD = 'lipSync'
+/** Whether the pet swaps its expression with each reply's classified emotion. */
+export const PET_EMOTION_FIELD = 'emotionExpressions'
 
 /** Preference values before the user has touched the pet. */
 export const PET_VISIBLE_DEFAULT = true
@@ -32,6 +34,7 @@ export const PET_OPACITY_MIN = 0.2
 export const PET_ANCHOR_DEFAULT = 'right'
 export const PET_MOTION_RATE_DEFAULT = 'normal'
 export const PET_LIP_SYNC_DEFAULT = true
+export const PET_EMOTION_DEFAULT = true
 
 /** One ambient-motion tempo. */
 export type PetMotionRate = 'calm' | 'normal' | 'lively'
@@ -59,6 +62,24 @@ export interface PetSettings {
   motionRate: PetMotionRate
   /** Whether the pet's mouth follows the spoken replies. */
   lipSync: boolean
+  /** Whether the pet mirrors each reply's classified emotion as an expression. */
+  emotionExpressions: boolean
+}
+
+/** The emotion keys the expression mapping addresses. */
+export type PetEmotionKey = 'happy' | 'angry' | 'sad' | 'surprised' | 'neutral'
+
+/**
+ * Emotion key → model expression name. The names address the model's
+ * `Expressions` array entries; `neutral` resolves to the model's default
+ * expression, so it holds no file mapping.
+ */
+export const PET_EMOTION_EXPRESSIONS: Record<PetEmotionKey, string> = {
+  happy: 'mtn_ex_010.exp3.json',
+  angry: 'mtn_ex_040.exp3.json',
+  sad: 'mtn_ex_030.exp3.json',
+  surprised: 'mtn_ex_020.exp3.json',
+  neutral: '',
 }
 
 /** The preference values used before the first settings acceptance lands. */
@@ -69,4 +90,5 @@ export const PET_SETTINGS_DEFAULTS: PetSettings = {
   anchor: PET_ANCHOR_DEFAULT,
   motionRate: PET_MOTION_RATE_DEFAULT,
   lipSync: PET_LIP_SYNC_DEFAULT,
+  emotionExpressions: PET_EMOTION_DEFAULT,
 }

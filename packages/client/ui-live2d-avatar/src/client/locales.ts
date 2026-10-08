@@ -23,6 +23,9 @@ export const zh = {
   'pet.lipSync': '口型跟随',
   'pet.lipSync.on': '开',
   'pet.lipSync.off': '关',
+  'pet.emotion': '表情跟随',
+  'pet.emotion.on': '开',
+  'pet.emotion.off': '关',
   'pet.resetPosition': '重置位置',
 } satisfies Record<string, string>
 
@@ -52,5 +55,8 @@ export const en = {
   'pet.lipSync': 'Lip sync',
   'pet.lipSync.on': 'On',
   'pet.lipSync.off': 'Off',
+  'pet.emotion': 'Expression mirroring',
+  'pet.emotion.on': 'On',
+  'pet.emotion.off': 'Off',
   'pet.resetPosition': 'Reset position',
 } satisfies Record<PetSettingsKey, string>

@@ -74,6 +74,7 @@
     { "path": "./packages/client/ui-attachment" },
     { "path": "./packages/client/ui-brand-xiaoyuan" },
     { "path": "./packages/client/ui-live2d-avatar" },
+    { "path": "./packages/client/ui-emotion-express" },
     { "path": "./packages/client/ui-voice-gate" },
     { "path": "./packages/image/image-gen/tsconfig.client.json" },
     { "path": "./packages/client/ui-primitives" },

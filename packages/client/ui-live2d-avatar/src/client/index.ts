@@ -40,8 +40,8 @@ import { installLipSync } from './lip-sync.ts'
 import { en, zh, type PetSettingsKey } from './locales.ts'
 import { PetRow, type PetRowInjected } from './PetRow.tsx'
 import {
-  PET_MOTION_INTERVALS, PET_SETTINGS_DEFAULTS, PET_SETTINGS_NAMESPACE,
-  type PetMotionRate, type PetSettings,
+  PET_EMOTION_EXPRESSIONS, PET_MOTION_INTERVALS, PET_SETTINGS_DEFAULTS, PET_SETTINGS_NAMESPACE,
+  type PetEmotionKey, type PetMotionRate, type PetSettings,
 } from '../pet-settings.ts'
 
 /**
@@ -251,6 +251,8 @@ export function apply(ctx: ClientContext): void {
     // call through these so they stay safe before (and after) boot.
     let petMotion: (() => void) | undefined
     let petExpression: (() => void) | undefined
+    /** The model's expression names in definition order; empty before boot. */
+    let expressionNames: readonly string[] = []
 
     const stopFallbackTalk = (): void => {
       if (fallbackTalk === undefined) return
@@ -370,6 +372,11 @@ export function apply(ctx: ClientContext): void {
           const expressions = pet.internalModel.motionManager?.expressionManager
           if (expressions !== undefined) expressions.setRandomExpression()
         }
+        const expressions = pet.internalModel.motionManager.expressionManager
+        expressionNames = (expressions === undefined
+          ? []
+          : (expressions.definitions as readonly { Name?: string }[])
+            .map(definition => definition.Name ?? ''))
         petMotion()
 
         // Feed the playing audio into the model's own lip-sync path: while
@@ -476,6 +483,35 @@ export function apply(ctx: ClientContext): void {
 
     restartAmbient(settings.motionRate)
 
+    // Emotion expressions: one window CustomEvent per classified reply from
+    // ui-emotion-express swaps the pet's expression. `neutral` restores the
+    // default face; an unknown mapping is skipped (the model may not carry
+    // the named expression). Same-event replay stays silent — the producer
+    // already dedupes by seq, and the consumer keeps the last seq too.
+    let lastEmotionSeq = -1
+    const onEmotion = (event: CustomEvent<{ emotion: PetEmotionKey; seq: number }>): void => {
+      if (!settings.emotionExpressions || !settings.visible) return
+      if (event.detail.seq <= lastEmotionSeq) return
+      lastEmotionSeq = event.detail.seq
+      const name = PET_EMOTION_EXPRESSIONS[event.detail.emotion]
+      if (name === '') return
+      if (!expressionNames.includes(name)) return
+      const expressions = model === undefined
+        ? undefined
+        : (model as unknown as {
+          internalModel: {
+            motionManager?: { expressionManager?: { setExpression(index: string): Promise<boolean> } }
+          }
+        }).internalModel.motionManager?.expressionManager
+      void expressions?.setExpression(name)
+    }
+    window.addEventListener('dsh-emotion:expression', onEmotion as (event: Event) => void)
+    const disposeBeforeEmotion = teardown
+    teardown = (): void => {
+      window.removeEventListener('dsh-emotion:expression', onEmotion as (event: Event) => void)
+      disposeBeforeEmotion?.()
+    }
+
     // Thinking cue: when the current session's agent starts (or stops) working,
     // one motion + expression marks the shift — skipped while TTS plays.
     if (uiSession !== undefined) {
@@ -496,7 +532,7 @@ export function apply(ctx: ClientContext): void {
       teardown = (): void => {
         disposeCurrent()
         disposeStatus()
-        disposeTeardown?.()
+        disposeTeardown()
       }
     }
 
