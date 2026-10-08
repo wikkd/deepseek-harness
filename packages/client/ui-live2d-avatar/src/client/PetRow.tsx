@@ -1,9 +1,9 @@
 /**
- * General Settings row for the desktop pet: the visibility switch, the size,
+ * Settings section for the desktop pet: the visibility switch, the size,
  * opacity, and dock-corner segmented controls, the ambient motion tempo and
  * lip-sync toggles, and the position reset — all backed by the plugin's own
- * settings namespace. Registered by this package — the pet feature owns its
- * own settings surface.
+ * settings namespace. Registered by this package as its own nav entry — the
+ * pet feature owns its own settings surface.
  */
 import { Button, SegmentedControl, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
@@ -28,9 +28,9 @@ export interface PetRowInjected {
   resetPosition: () => void
 }
 
-/** Full Settings-row props. */
+/** Full Settings-section props. */
 export type PetRowProps =
-  PropsRuntime<'settings.general.item'>
+  PropsRuntime<'settings.section'>
   & PropsLocale<'settings.live2dAvatar'>
   & InjectFace<PetRowInjected>
 

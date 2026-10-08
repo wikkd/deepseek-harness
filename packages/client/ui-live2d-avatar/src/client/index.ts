@@ -3,7 +3,7 @@
  * floats at the client's lower corner: idle motions and expressions cycle on
  * a shuffled bag timer, the eyes track the pointer, clicking the character
  * plays another motion, dragging repositions the pet (persisted in
- * localStorage), and a General-settings row owns the whole appearance —
+ * localStorage), and a dedicated Settings section owns the whole appearance —
  * visibility, size, opacity, dock corner, ambient tempo, and lip sync —
  * through the plugin's own settings namespace. While the TTS plugin plays a
  * spoken reply the playing element is tapped into the motion manager's
@@ -192,10 +192,14 @@ export function apply(ctx: ClientContext): void {
     for (const listener of rowListeners) listener()
   }), 'ui-live2d-avatar: preference adoption')
 
-  ctx.slots.inject('settings.general.item', () => ctx.slots.register({
-    name: 'settings.general.item',
+  // The pet owns a dedicated Settings section — a feature with this many
+  // preferences should be findable in the nav rail, not buried at the bottom
+  // of General. Ordered after agent-presets, before third-party sections.
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
     id: 'live2d-avatar',
-    order: 30,
+    order: 25,
+    label: () => ctx.locale.bind(SETTINGS_NS)('pet.nav'),
     locale: SETTINGS_NS,
     inject: (): PetRowInjected => ({
       hooks: { settings: settingsSnapshot },

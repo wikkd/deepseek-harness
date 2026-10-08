@@ -4,7 +4,6 @@
   align-items: stretch;
   gap: 16px;
   padding: 16px 0;
-  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
 }
 
 .head {

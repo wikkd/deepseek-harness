@@ -2,6 +2,7 @@
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
+  'pet.nav': '桌宠',
   'pet.title': '小圆桌宠',
   'pet.description': '在页面角落显示小圆；朗读回复时她的口型会跟着声音动',
   'pet.size': '大小',
@@ -30,6 +31,7 @@ export type PetSettingsKey = keyof typeof zh
 
 /** English dictionary, checked complete against the zh key set. */
 export const en = {
+  'pet.nav': 'Desktop pet',
   'pet.title': 'Madoka desktop pet',
   'pet.description': 'Show Madoka in a corner; her mouth follows the spoken replies',
   'pet.size': 'Size',
