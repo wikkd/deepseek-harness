@@ -1,0 +1,37 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/client/ui-voice-gate/README.md
+/:
+  en: 5f4f6fe38c94c852
+  zh: ac48e4ccecd65439
+/deepseek-ai-dsh-client-ui-voice-gate:
+  en: dd83272978c91649
+  zh: 58acea79cb0c4551
+/deepseek-ai-dsh-client-ui-voice-gate/summary:
+  en: 855c45c65c4f262d
+  zh: 866d867accfec998
+/deepseek-ai-dsh-client-ui-voice-gate/table-of-contents:
+  en: 80b31a934611cb4a
+  zh: 05f3f7f9cb2fd881
+/deepseek-ai-dsh-client-ui-voice-gate/use-this-package:
+  en: bb5a7b64e5217bb0
+  zh: 7cea1a32c7d3d6da
+/deepseek-ai-dsh-client-ui-voice-gate/use-this-package/when-to-choose-it:
+  en: d40909b3eb6aaf1b
+  zh: 310e9c2638e85741
+/deepseek-ai-dsh-client-ui-voice-gate/use-this-package/minimal-configuration:
+  en: 6676ba0a2e64d46f
+  zh: 9a1a3023bf6f3381
+/deepseek-ai-dsh-client-ui-voice-gate/understand-the-implementation:
+  en: 04f4c7e5c30c359c
+  zh: 0d9a4eec178f344a
+/deepseek-ai-dsh-client-ui-voice-gate/further-exploration:
+  en: e173a544d20e7274
+  zh: 25293afd41b2a26c
+/deepseek-ai-dsh-client-ui-voice-gate/known-limitations-and-deferred-work:
+  en: 1252ff9a945ff90a
+  zh: 0bd6b9fb2bcda11a
+/deepseek-ai-dsh-client-ui-voice-gate/known-limitations-and-deferred-work/dev-note:
+  en: 92723c3bf36b0266
+  zh: 7732e804580ff926

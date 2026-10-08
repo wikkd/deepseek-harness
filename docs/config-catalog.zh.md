@@ -1311,7 +1311,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-gptsovits-voice`
 
-- `source`: [`packages/voice/gptsovits-voice/src/index.ts:24`](../packages/voice/gptsovits-voice/src/index.ts)
+- `source`: [`packages/voice/gptsovits-voice/src/index.ts:29`](../packages/voice/gptsovits-voice/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: every deployment-specific choice is a field, never a constant. */
@@ -1337,11 +1337,25 @@ export interface Config {
   /** Voice used when a request names no profile or an unknown one. */
   defaultVoice?: string
   /** Cloned-voice profiles served by the bridge. */
-  voices?: VoiceProfile[]
+  voices?: VoiceProfileConfig[]
+  /** Absolute index-tts checkout root; empty disables the IndexTTS engine. */
+  indexttsDir?: string
+  /** Absolute path of `indextts_server.py`; empty resolves to `<indexttsDir>/../scripts/indextts_server.py` (VoiceCut layout). */
+  indexttsServerScript?: string
+  /** Python interpreter for the IndexTTS service; empty uses `<indexttsDir>/.venv`. */
+  indexttsPython?: string
+  /** Port of the IndexTTS service. */
+  indexttsPort?: number
+  /** Spawn the IndexTTS service on profile boot and wait for its model load. */
+  autostartIndextts?: boolean
+  /** Startup deadline for the IndexTTS service; the model load alone takes 20-40s. */
+  indexttsStartupTimeoutMs?: number
+  /** Normalize engine output to -16 LUFS so both voices read at the same level. */
+  loudnorm?: boolean
 }
 
-/** One cloned-voice profile: the reference clip GPT-SoVITS speaks through. */
-export interface VoiceProfile {
+/** One cloned-voice profile as the user writes it in cordis.yml. */
+export interface VoiceProfileConfig {
   /** Profile name the dsh-tts chain entry refers to as `voice`. */
   name: string
   /** Absolute path (as seen by the GPT-SoVITS process) of the 3-10 s reference wav. */
@@ -1351,9 +1365,13 @@ export interface VoiceProfile {
   /** Language of the reference clip (ja, zh, en, ...). */
   promptLang: string
   /** Force the synthesis language; `auto` detects kana/hangul/han/latin per request. */
-  textLang: string
+  textLang?: string
   /** Extra reference clips for multi-reference tone fusion. */
-  auxRefAudioPaths: string[]
+  auxRefAudioPaths?: string[]
+  /** Engine preference; `auto` sends Chinese to IndexTTS when available. */
+  engine?: string
+  /** Absolute path of the profile's IndexTTS reference wav; empty keeps the profile on GPT-SoVITS. */
+  indexRefAudioPath?: string
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-gptsovits-voice -->
@@ -1601,7 +1619,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-image-gen`
 
 - `inject`: `tools`
-- `source`: [`packages/image/image-gen/src/index.ts:26`](../packages/image/image-gen/src/index.ts)
+- `source`: [`packages/image/image-gen/src/index.ts:33`](../packages/image/image-gen/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: provider endpoint, model, credentials source, and request bounds. */
@@ -1614,11 +1632,11 @@ export interface Config {
   backend?: 'comfyui' | 'openai-images'
   /** Local ComfyUI server origin (e.g. http://127.0.0.1:8188). */
   comfyuiUrl?: string
-  /** ComfyUI checkpoint name under models/checkpoints. */
+  /** Fast-tier ComfyUI checkpoint name under models/checkpoints. */
   comfyuiCheckpoint?: string
-  /** ComfyUI sampler steps; turbo/distilled checkpoints need 1-4. */
+  /** Fast-tier ComfyUI sampler steps; turbo/distilled checkpoints need 1-4. */
   comfyuiSteps?: number
-  /** ComfyUI CFG guidance; turbo checkpoints want ~1. */
+  /** Fast-tier ComfyUI CFG guidance; turbo checkpoints want ~1. */
   comfyuiCfg?: number
   /**
    * Absolute ComfyUI checkout directory (`main.py` at its root). When set and
@@ -1634,6 +1652,22 @@ export interface Config {
   comfyuiStartupTimeoutMs?: number
   /** Extra ComfyUI CLI arguments appended verbatim (whitespace-split). */
   comfyuiExtraArgs?: string
+  /**
+   * Fine-tier GGUF diffusion model name under ComfyUI `models/diffusion_models`.
+   * Set all three comfyuiFine* file fields together to enable tiered routing;
+   * leave all empty to always render on the fast checkpoint.
+   */
+  comfyuiFineUnet?: string
+  /** Fine-tier text-encoder name under ComfyUI `models/text_encoders`. */
+  comfyuiFineClip?: string
+  /** Fine-tier CLIPLoader `type` widget value (e.g. `qwen_image`). */
+  comfyuiFineClipType?: string
+  /** Fine-tier VAE name under ComfyUI `models/vae`. */
+  comfyuiFineVae?: string
+  /** Fine-tier sampler steps; quality models typically want 20-30. */
+  comfyuiFineSteps?: number
+  /** Fine-tier CFG guidance. */
+  comfyuiFineCfg?: number
   /** OpenAI-compatible images API origin; `/images/generations` is appended. */
   baseUrl?: string
   /** Text-to-image model id the provider routes (e.g. `black-forest-labs/FLUX.1-schnell`). */
@@ -1642,7 +1676,7 @@ export interface Config {
   apiKeyEnv?: string
   /** Default image size as `宽x高` pixels, e.g. `1024x1024`. */
   size?: string
-  /** Deadline for the provider request plus the picture download. */
+  /** Deadline for the provider request plus the picture download; fine-tier renders count against it. */
   timeoutMs?: number
 }
 ```
@@ -4497,10 +4531,12 @@ export interface Config {
 | `@deepseek-ai/dsh-client-ui-deliverables` | `systemPrompt` · `connection` · `sessionQuery` · `sessionController` · `workspaceFiles` · `fs` · `sandboxPolicy` · `workspaceChanges` | [`packages/client/ui-deliverables/src/index.ts`](../packages/client/ui-deliverables/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-directory-picker-browse` | — | [`packages/client/ui-directory-picker-browse/src/index.ts`](../packages/client/ui-directory-picker-browse/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-directory-picker-native` | — | [`packages/client/ui-directory-picker-native/src/index.ts`](../packages/client/ui-directory-picker-native/src/index.ts) |
+| `@deepseek-ai/dsh-client-ui-emotion-express` | — | [`packages/client/ui-emotion-express/src/index.ts`](../packages/client/ui-emotion-express/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-goal` | — | [`packages/client/ui-goal/src/index.ts`](../packages/client/ui-goal/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-input-trigger` | — | [`packages/client/ui-input-trigger/src/index.ts`](../packages/client/ui-input-trigger/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-jobs` | — | [`packages/client/ui-jobs/src/index.ts`](../packages/client/ui-jobs/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-layout` | — | [`packages/client/ui-layout/src/index.ts`](../packages/client/ui-layout/src/index.ts) |
+| `@deepseek-ai/dsh-client-ui-live2d-avatar` | — | [`packages/client/ui-live2d-avatar/src/index.ts`](../packages/client/ui-live2d-avatar/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-message-feedback` | — | [`packages/client/ui-message-feedback/src/index.ts`](../packages/client/ui-message-feedback/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-model-selection` | — | [`packages/client/ui-model-selection/src/index.ts`](../packages/client/ui-model-selection/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-open-in-app` | — | [`packages/client/ui-open-in-app/src/index.ts`](../packages/client/ui-open-in-app/src/index.ts) |
@@ -4530,6 +4566,7 @@ export interface Config {
 | `@deepseek-ai/dsh-client-ui-tool` | — | [`packages/client/ui-tool/src/index.ts`](../packages/client/ui-tool/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-trajectory` | — | [`packages/client/ui-trajectory/src/index.ts`](../packages/client/ui-trajectory/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-user-questions` | — | [`packages/client/ui-user-questions/src/index.ts`](../packages/client/ui-user-questions/src/index.ts) |
+| `@deepseek-ai/dsh-client-ui-voice-gate` | — | [`packages/client/ui-voice-gate/src/index.ts`](../packages/client/ui-voice-gate/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-workflow-run` | — | [`packages/client/ui-workflow-run/src/index.ts`](../packages/client/ui-workflow-run/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-workspace` | — | [`packages/client/ui-workspace/src/index.ts`](../packages/client/ui-workspace/src/index.ts) |
 | `@deepseek-ai/dsh-command-compact` | `commands` · `compaction` | [`packages/compaction/command-compact/src/index.ts`](../packages/compaction/command-compact/src/index.ts) |

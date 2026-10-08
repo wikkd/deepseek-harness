@@ -1,0 +1,37 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/client/ui-live2d-avatar/README.md
+/:
+  en: 0dd0c337cc65c3c7
+  zh: 8699bc5da6bb181b
+/deepseek-ai-dsh-client-ui-live2d-avatar:
+  en: 213055416e48f4f5
+  zh: ad881554be77f3cf
+/deepseek-ai-dsh-client-ui-live2d-avatar/summary:
+  en: 883a3f63b142fd47
+  zh: e7fc6e83ba53253c
+/deepseek-ai-dsh-client-ui-live2d-avatar/table-of-contents:
+  en: 80b31a934611cb4a
+  zh: 05f3f7f9cb2fd881
+/deepseek-ai-dsh-client-ui-live2d-avatar/use-this-package:
+  en: 4914a8517e958308
+  zh: 15221ee9f6180c8a
+/deepseek-ai-dsh-client-ui-live2d-avatar/use-this-package/when-to-choose-it:
+  en: 9387e8e2bf89789c
+  zh: a24dce875d20109c
+/deepseek-ai-dsh-client-ui-live2d-avatar/use-this-package/minimal-configuration:
+  en: 87318db36cc2197a
+  zh: 770067e05a2f4a12
+/deepseek-ai-dsh-client-ui-live2d-avatar/understand-the-implementation:
+  en: 146dbb5b7b40037f
+  zh: 0f8041db8e9d4445
+/deepseek-ai-dsh-client-ui-live2d-avatar/further-exploration:
+  en: 37d6ad6bb031188d
+  zh: 663068569ac3e516
+/deepseek-ai-dsh-client-ui-live2d-avatar/known-limitations-and-deferred-work:
+  en: a370b7fe53bcac01
+  zh: 6a2d9283c2dbd528
+/deepseek-ai-dsh-client-ui-live2d-avatar/known-limitations-and-deferred-work/dev-note:
+  en: 2ccf365956d0dda5
+  zh: 0f5fbc3c3eab1f99

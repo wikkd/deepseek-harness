@@ -16,7 +16,9 @@
   },
   "files": [
     "src/index.ts",
-    "src/comfyui-sidecar.ts"
+    "src/comfyui-sidecar.ts",
+    "src/comfy-graph.ts",
+    "src/tier-routing.ts"
   ],
   "references": [
     {

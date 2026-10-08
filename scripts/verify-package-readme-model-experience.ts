@@ -40,6 +40,9 @@ const NO_MODEL_EXPERIENCE_SECTION: Readonly<Record<string, string>> = {
   'packages/workspace/instant-chat': 'Boot-time workspace registry bootstrap registers no model-visible context or tools.',
   'packages/voice/gptsovits-voice': 'The sidecar hosts a TTS process and bridge; the model reaches it only through the dsh-tts provider chain, never through package-registered context or tools.',
   'packages/client/ui-brand-xiaoyuan': 'Browser-side presentation occupants; registers nothing model-facing.',
+  'packages/client/ui-emotion-express': 'Browser-side emotion classifier over already-received reply text; contributes nothing to model requests.',
+  'packages/client/ui-voice-gate': 'Presentation-layer DOM gate over produced prose; hides and reveals text without changing any request.',
+  'packages/client/ui-live2d-avatar': 'Browser-side pet rendering over session events; registers nothing model-facing.',
 }
 
 /**

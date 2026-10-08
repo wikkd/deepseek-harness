@@ -1,0 +1,37 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/client/ui-emotion-express/README.md
+/:
+  en: fcb864225a136a51
+  zh: 8bae8b8efb7b9b44
+/deepseek-ai-dsh-client-ui-emotion-express:
+  en: f1476caf24688c8a
+  zh: f268ca6c4aabfdfe
+/deepseek-ai-dsh-client-ui-emotion-express/summary:
+  en: 24c49c3aa39f37d4
+  zh: 3867bd9b6ba84d1b
+/deepseek-ai-dsh-client-ui-emotion-express/table-of-contents:
+  en: 80b31a934611cb4a
+  zh: 05f3f7f9cb2fd881
+/deepseek-ai-dsh-client-ui-emotion-express/use-this-package:
+  en: 02d3e96a16ff82e1
+  zh: 6b88f6e4717febb3
+/deepseek-ai-dsh-client-ui-emotion-express/use-this-package/when-to-choose-it:
+  en: e21161ecef874f53
+  zh: 9aa713a88d513ea6
+/deepseek-ai-dsh-client-ui-emotion-express/use-this-package/minimal-configuration:
+  en: 2c0da12c7c4d9267
+  zh: 81f17e1a85bdbe33
+/deepseek-ai-dsh-client-ui-emotion-express/understand-the-implementation:
+  en: 7320e2a77e104fae
+  zh: bdb4a43a76d0f098
+/deepseek-ai-dsh-client-ui-emotion-express/further-exploration:
+  en: 7334619730647bfa
+  zh: 2b27104c4bb6b7a5
+/deepseek-ai-dsh-client-ui-emotion-express/known-limitations-and-deferred-work:
+  en: edd7f3e1a76f85d2
+  zh: c90b085544e5717a
+/deepseek-ai-dsh-client-ui-emotion-express/known-limitations-and-deferred-work/dev-note:
+  en: c7f4b652826c6a4b
+  zh: edc5720401dac95e

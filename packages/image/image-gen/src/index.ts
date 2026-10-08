@@ -1,9 +1,12 @@
 /**
  * Model-facing `generate_image` tool over an OpenAI-compatible text-to-image
- * API (default: SiliconFlow). One call produces one picture; the bytes commit
- * to the durable attachment store and the result pairs a text envelope with
- * the image content block, so native transcripts, PTC dispatches, and replayed
- * web cards all see the same picture without provider-specific plumbing.
+ * API (default: SiliconFlow) or a local ComfyUI server. One call produces one
+ * picture; the bytes commit to the durable attachment store and the result
+ * pairs a text envelope with the image content block, so native transcripts,
+ * PTC dispatches, and replayed web cards all see the same picture without
+ * provider-specific plumbing. On ComfyUI the tool routes between a fast
+ * checkpoint tier and a fine GGUF tier by the model's difficulty judgment and
+ * the host's probed spare capacity.
  * @module @deepseek-ai/dsh-image-gen
  */
 
@@ -15,6 +18,10 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { createComfyuiSidecar, parseLoopbackOrigin, validateSidecarFiles } from './comfyui-sidecar.ts'
 import type { ComfyuiSidecar } from './comfyui-sidecar.ts'
+import { buildFastGraph, buildFineGraph, validateFineTierFiles } from './comfy-graph.ts'
+import type { ComfyGraph, FineTierFiles } from './comfy-graph.ts'
+import { decideTier, probeComfyuiStats } from './tier-routing.ts'
+import type { RoutingDecision } from './tier-routing.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'image-gen'
@@ -32,11 +39,11 @@ export interface Config {
   backend?: 'comfyui' | 'openai-images'
   /** Local ComfyUI server origin (e.g. http://127.0.0.1:8188). */
   comfyuiUrl?: string
-  /** ComfyUI checkpoint name under models/checkpoints. */
+  /** Fast-tier ComfyUI checkpoint name under models/checkpoints. */
   comfyuiCheckpoint?: string
-  /** ComfyUI sampler steps; turbo/distilled checkpoints need 1-4. */
+  /** Fast-tier ComfyUI sampler steps; turbo/distilled checkpoints need 1-4. */
   comfyuiSteps?: number
-  /** ComfyUI CFG guidance; turbo checkpoints want ~1. */
+  /** Fast-tier ComfyUI CFG guidance; turbo checkpoints want ~1. */
   comfyuiCfg?: number
   /**
    * Absolute ComfyUI checkout directory (`main.py` at its root). When set and
@@ -52,6 +59,22 @@ export interface Config {
   comfyuiStartupTimeoutMs?: number
   /** Extra ComfyUI CLI arguments appended verbatim (whitespace-split). */
   comfyuiExtraArgs?: string
+  /**
+   * Fine-tier GGUF diffusion model name under ComfyUI `models/diffusion_models`.
+   * Set all three comfyuiFine* file fields together to enable tiered routing;
+   * leave all empty to always render on the fast checkpoint.
+   */
+  comfyuiFineUnet?: string
+  /** Fine-tier text-encoder name under ComfyUI `models/text_encoders`. */
+  comfyuiFineClip?: string
+  /** Fine-tier CLIPLoader `type` widget value (e.g. `qwen_image`). */
+  comfyuiFineClipType?: string
+  /** Fine-tier VAE name under ComfyUI `models/vae`. */
+  comfyuiFineVae?: string
+  /** Fine-tier sampler steps; quality models typically want 20-30. */
+  comfyuiFineSteps?: number
+  /** Fine-tier CFG guidance. */
+  comfyuiFineCfg?: number
   /** OpenAI-compatible images API origin; `/images/generations` is appended. */
   baseUrl?: string
   /** Text-to-image model id the provider routes (e.g. `black-forest-labs/FLUX.1-schnell`). */
@@ -60,20 +83,26 @@ export interface Config {
   apiKeyEnv?: string
   /** Default image size as `宽x高` pixels, e.g. `1024x1024`. */
   size?: string
-  /** Deadline for the provider request plus the picture download. */
+  /** Deadline for the provider request plus the picture download; fine-tier renders count against it. */
   timeoutMs?: number
 }
 
 export const Config: z<Config> = z.object({
   backend: z.union(['comfyui', 'openai-images']).description('Generation backend; comfyui drives the local server without a key.').default('comfyui'),
   comfyuiUrl: z.string().description('Local ComfyUI server origin.').default('http://127.0.0.1:8188'),
-  comfyuiCheckpoint: z.string().description('ComfyUI checkpoint name under models/checkpoints.').default('sd_xl_turbo_1.0_fp16.safetensors'),
-  comfyuiSteps: z.number().description('ComfyUI sampler steps; turbo checkpoints need 1-4.').default(2),
-  comfyuiCfg: z.number().description('ComfyUI CFG guidance; turbo checkpoints want ~1.').default(1),
+  comfyuiCheckpoint: z.string().description('Fast-tier ComfyUI checkpoint name under models/checkpoints.').default('sd_xl_turbo_1.0_fp16.safetensors'),
+  comfyuiSteps: z.number().description('Fast-tier ComfyUI sampler steps; turbo checkpoints need 1-4.').default(2),
+  comfyuiCfg: z.number().description('Fast-tier ComfyUI CFG guidance; turbo checkpoints want ~1.').default(1),
   comfyuiDir: z.string().description('Absolute ComfyUI checkout directory (main.py at its root); set it to let the plugin spawn and supervise the server.').default(''),
   comfyuiPythonPath: z.string().description('Python interpreter for ComfyUI; empty uses <comfyuiDir>/python_embeded.').default(''),
   comfyuiStartupTimeoutMs: z.number().description('Deadline for one managed ComfyUI startup.').default(120_000),
   comfyuiExtraArgs: z.string().description('Extra ComfyUI CLI arguments appended verbatim.').default(''),
+  comfyuiFineUnet: z.string().description('Fine-tier GGUF diffusion model under ComfyUI models/diffusion_models; set with comfyuiFineClip and comfyuiFineVae to enable tiered routing.').default(''),
+  comfyuiFineClip: z.string().description('Fine-tier text encoder under ComfyUI models/text_encoders.').default(''),
+  comfyuiFineClipType: z.string().description('Fine-tier CLIPLoader type widget value.').default('qwen_image'),
+  comfyuiFineVae: z.string().description('Fine-tier VAE under ComfyUI models/vae.').default(''),
+  comfyuiFineSteps: z.number().description('Fine-tier sampler steps.').default(25),
+  comfyuiFineCfg: z.number().description('Fine-tier CFG guidance.').default(1),
   baseUrl: z.string().description('OpenAI-compatible images API origin; /images/generations is appended.').default('https://api.siliconflow.cn/v1'),
   model: z.string().description('Text-to-image model id the provider routes.').default('black-forest-labs/FLUX.1-schnell'),
   apiKeyEnv: z.string().description('Environment variable holding the provider API key.').default('IMAGE_GEN_API_KEY'),
@@ -92,6 +121,12 @@ interface ResolvedConfig {
   comfyuiPythonPath: string
   comfyuiStartupTimeoutMs: number
   comfyuiExtraArgs: string
+  comfyuiFineUnet: string
+  comfyuiFineClip: string
+  comfyuiFineClipType: string
+  comfyuiFineVae: string
+  comfyuiFineSteps: number
+  comfyuiFineCfg: number
   baseUrl: string
   model: string
   apiKeyEnv: string
@@ -112,39 +147,16 @@ function parseSize(size: string): { width: number; height: number } {
 }
 
 /**
- * Generate one picture on a local ComfyUI server: queue the standard
- * checkpoint text-to-image graph, poll until it settles, then download the
- * finished file from `/view`.
+ * Submit one API-format graph to ComfyUI, poll until it settles, then
+ * download the finished file from `/view`.
  * @param origin - ComfyUI server origin without a trailing slash.
- * @param resolved - resolved plugin config.
- * @param prompt - the user's text prompt.
- * @param size - validated WIDTHxHEIGHT string.
+ * @param graph - the API-format prompt graph to run.
+ * @param timeoutMs - deadline for the whole queue-poll-download sequence.
  * @param signal - cooperative cancellation.
  * @returns the encoded picture bytes.
  */
-async function generateOnComfyUI(origin: string, resolved: ResolvedConfig, prompt: string,
-  size: string, signal: AbortSignal): Promise<Uint8Array> {
-  const { width, height } = parseSize(size)
-  const graph = {
-    '1': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: resolved.comfyuiCheckpoint } },
-    '2': { class_type: 'CLIPTextEncode', inputs: { text: prompt, clip: ['1', 1] } },
-    '3': { class_type: 'CLIPTextEncode', inputs: { text: '', clip: ['1', 1] } },
-    '4': { class_type: 'EmptyLatentImage', inputs: { width, height, batch_size: 1 } },
-    '5': {
-      class_type: 'KSampler',
-      inputs: {
-        seed: Math.floor(Math.random() * 1_000_000_000),
-        steps: resolved.comfyuiSteps,
-        cfg: resolved.comfyuiCfg,
-        sampler_name: 'euler',
-        scheduler: 'simple',
-        denoise: 1,
-        model: ['1', 0], positive: ['2', 0], negative: ['3', 0], latent_image: ['4', 0],
-      },
-    },
-    '6': { class_type: 'VAEDecode', inputs: { samples: ['5', 0], vae: ['1', 2] } },
-    '7': { class_type: 'SaveImage', inputs: { filename_prefix: 'dsh-image-gen', images: ['6', 0] } },
-  }
+async function runComfyGraph(origin: string, graph: ComfyGraph, timeoutMs: number,
+  signal: AbortSignal): Promise<Uint8Array> {
   const queued = await fetch(`${origin}/prompt`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ prompt: graph, client_id: 'dsh-image-gen' }), signal,
@@ -154,7 +166,7 @@ async function generateOnComfyUI(origin: string, resolved: ResolvedConfig, promp
   if (promptId === undefined) throw new Error('ComfyUI answered without a prompt id')
 
   // Poll /history/{id}; a settled entry names its output file(s) under outputs.
-  const deadline = Date.now() + resolved.timeoutMs
+  const deadline = Date.now() + timeoutMs
   let filename: string | undefined
   let subfolder = ''
   while (Date.now() < deadline) {
@@ -175,7 +187,7 @@ async function generateOnComfyUI(origin: string, resolved: ResolvedConfig, promp
       break
     }
   }
-  if (filename === undefined) throw new Error(`ComfyUI did not finish within ${String(resolved.timeoutMs)} ms`)
+  if (filename === undefined) throw new Error(`ComfyUI did not finish within ${String(timeoutMs)} ms`)
   const params = new URLSearchParams({ filename, type: 'output' })
   if (subfolder !== '') params.set('subfolder', subfolder)
   const view = await fetch(`${origin}/view?${params.toString()}`, { signal })
@@ -212,6 +224,12 @@ function sniffImageMediaType(data: Uint8Array): ImageMediaType | undefined {
  */
 export interface ImageGenValue {
   prompt: string
+  /** The tier that rendered the picture; `fast` on backends without routing. */
+  tier: 'fast' | 'fine'
+  /** The model identifier that rendered the picture. */
+  model: string
+  /** Why the router picked the tier; stable phrasing for the envelope. */
+  routing: string
   image: {
     attachmentId: string
     mediaType: ImageMediaType
@@ -284,6 +302,9 @@ function formatImageGenOutput(value: ImageGenValue): string {
   const { image } = value
   return `<prompt>${value.prompt}</prompt>
 <type>image</type>
+<model>${value.model}</model>
+<tier>${value.tier}</tier>
+<routing>${value.routing}</routing>
 <content>
 ${image.mediaType} image, ${image.width}x${image.height} px, ${image.bytes} bytes
 </content>`
@@ -313,6 +334,27 @@ function firstPicture(payload: unknown): { url?: string; b64?: string } | undefi
 }
 
 /**
+ * Decide the rendering tier for one ComfyUI picture: probe the server's spare
+ * capacity (a failed probe constrains nothing) and run it through the router
+ * with the caller's difficulty judgment.
+ * @param origin - ComfyUI server origin without a trailing slash.
+ * @param quality - the model's difficulty judgment from the tool arguments.
+ * @param fineAvailable - whether the fine-tier model files are configured.
+ * @returns the routing decision.
+ */
+async function routeTier(origin: string, quality: 'fast' | 'fine' | 'auto',
+  fineAvailable: boolean): Promise<RoutingDecision> {
+  const stats = await probeComfyuiStats(origin)
+  return decideTier({
+    quality,
+    freeRamGiB: stats.freeRamGiB,
+    freeVramGiB: stats.freeVramGiB,
+    fineAvailable,
+    backend: 'comfyui',
+  })
+}
+
+/**
  * Register the `generate_image` tool inside a scope that has the durable
  * attachment store mounted; images must outlive the session to replay, so a
  * missing store refuses activation instead of failing at generation time.
@@ -320,16 +362,27 @@ function firstPicture(payload: unknown): { url?: string; b64?: string } | undefi
  * @param resolved - the plugin config with every default applied.
  * @param sidecar - the managed ComfyUI server, or undefined when server
  * management is off; a set sidecar is awaited before every local render.
+ * @param fineFiles - the fine-tier model files, or undefined when tiered
+ * routing is off (all comfyuiFine* file fields empty).
  */
-function registerTool(ctx: Context, resolved: ResolvedConfig, sidecar: ComfyuiSidecar | undefined): void {
+function registerTool(ctx: Context, resolved: ResolvedConfig, sidecar: ComfyuiSidecar | undefined,
+  fineFiles: FineTierFiles | undefined): void {
   ctx.tools.register(defineTool({
     name: 'generate_image',
     description: 'Generate one image from a text description with a text-to-image model. '
       + 'Use it when the user asks to draw, render, or illustrate something; the picture is shown to the user as a card. '
       + 'Write the prompt as a concrete description of subject, style, and composition; the provider handles any language. '
+      + 'Set quality to "fine" for demanding pictures — detailed scenes, complex compositions, readable text inside the image, '
+      + 'or Chinese-heavy prompts — and to "fast" for quick sketches, drafts, and icons. '
+      + 'Omit quality when the difficulty is unclear; the host decides from its spare capacity. '
       + 'The result is delivered as an automatic picture card — never paste the returned path into your reply text.',
     parameters: {
       prompt: { type: 'string', required: true, description: 'What the picture should show: subject, style, and composition.' },
+      quality: {
+        type: 'string',
+        enum: ['fast', 'fine'],
+        description: 'Difficulty judgment: "fine" renders on the high-quality local model (slower), "fast" on the quick draft model. Omit to let the host decide.',
+      },
       size: { type: 'string', description: `Picture size as WIDTHxHEIGHT pixels. Defaults to ${resolved.size}.` },
     },
     output: {
@@ -338,6 +391,9 @@ function registerTool(ctx: Context, resolved: ResolvedConfig, sidecar: ComfyuiSi
         additionalProperties: false,
         properties: {
           prompt: { type: 'string', required: true },
+          tier: { type: 'string', enum: ['fast', 'fine'], required: true },
+          model: { type: 'string', required: true },
+          routing: { type: 'string', required: true },
           image: {
             type: 'object',
             additionalProperties: false,
@@ -372,22 +428,38 @@ function registerTool(ctx: Context, resolved: ResolvedConfig, sidecar: ComfyuiSi
 
       const signal = AbortSignal.any([exec.signal, AbortSignal.timeout(resolved.timeoutMs)])
       let data: Uint8Array
+      let tier: 'fast' | 'fine'
+      let modelUsed: string
+      let routing: string
       if (resolved.backend === 'comfyui') {
         const origin = resolved.comfyuiUrl.replace(/\/+$/u, '')
         try {
           // A configured sidecar makes the server a managed prerequisite:
           // first render waits out the spawn, a crashed server respawns here.
           await sidecar?.ensureRunning()
-          data = await generateOnComfyUI(origin, resolved, prompt, size, signal)
+          const decision = await routeTier(origin, args.quality ?? 'auto', fineFiles !== undefined)
+          tier = decision.tier
+          routing = decision.reason
+          const seed = Math.floor(Math.random() * 1_000_000_000)
+          const { width, height } = parseSize(size)
+          const graph = tier === 'fine' && fineFiles !== undefined
+            ? buildFineGraph(fineFiles, prompt, '', width, height, resolved.comfyuiFineSteps, resolved.comfyuiFineCfg, seed)
+            : buildFastGraph(resolved.comfyuiCheckpoint, prompt, '', width, height, resolved.comfyuiSteps, resolved.comfyuiCfg, seed)
+          modelUsed = tier === 'fine' && fineFiles !== undefined ? fineFiles.unet : resolved.comfyuiCheckpoint
+          data = await runComfyGraph(origin, graph, resolved.timeoutMs, signal)
         } catch (error: unknown) {
           if (signal.aborted) throw error
           const cause = error instanceof Error ? error.message : String(error)
           const hint = sidecar === undefined
-            ? `; is ComfyUI running and is "${resolved.comfyuiCheckpoint}" present under models/checkpoints?`
-            : ` — the managed server log lines above ([comfyui]) say what went wrong`
+            ? '; is ComfyUI running and are the configured model files present under models/?'
+            : ' — the managed server log lines above ([comfyui]) say what went wrong'
           throw new Error(`local ComfyUI at ${origin} failed: ${cause}${hint}`, { cause: error instanceof Error ? error : undefined })
         }
       } else {
+        const decision = decideTier({ quality: 'auto', freeRamGiB: undefined, freeVramGiB: undefined, fineAvailable: false, backend: 'openai-images' })
+        tier = decision.tier
+        modelUsed = resolved.model
+        routing = decision.reason
         data = await generateViaOpenAIImages(resolved, prompt, size, signal)
       }
       const mediaType = sniffImageMediaType(data) ?? 'image/png'
@@ -406,6 +478,9 @@ function registerTool(ctx: Context, resolved: ResolvedConfig, sidecar: ComfyuiSi
 
       return {
         prompt,
+        tier,
+        model: modelUsed,
+        routing,
         image: {
           attachmentId: ref.attachmentId,
           mediaType: ref.mediaType,
@@ -428,6 +503,26 @@ function registerTool(ctx: Context, resolved: ResolvedConfig, sidecar: ComfyuiSi
 }
 
 /**
+ * Resolve the fine-tier model file names from config. All three file fields
+ * must be set together or all empty; a partial trio is a loud misconfiguration.
+ * @param resolved - the plugin config with every default applied.
+ * @returns the fine-tier files, or undefined when routing is off.
+ */
+function resolveFineFiles(resolved: ResolvedConfig): FineTierFiles | undefined {
+  const anySet = resolved.comfyuiFineUnet !== '' || resolved.comfyuiFineClip !== '' || resolved.comfyuiFineVae !== ''
+  if (!anySet) return undefined
+  if (resolved.comfyuiFineUnet === '' || resolved.comfyuiFineClip === '' || resolved.comfyuiFineVae === '') {
+    throw new Error('image-gen: tiered routing needs comfyuiFineUnet, comfyuiFineClip, and comfyuiFineVae set together (or all empty)')
+  }
+  return {
+    unet: resolved.comfyuiFineUnet,
+    clip: resolved.comfyuiFineClip,
+    clipType: resolved.comfyuiFineClipType,
+    vae: resolved.comfyuiFineVae,
+  }
+}
+
+/**
  * Register the image-generation tool. Registration waits for the attachment
  * store so the tool exists exactly while durable image storage is available.
  * @param ctx - the plugin context.
@@ -440,15 +535,30 @@ export function apply(ctx: Context, config: Config): void {
     comfyuiCheckpoint: typeof config.comfyuiCheckpoint === 'string' && config.comfyuiCheckpoint.trim() !== '' ? config.comfyuiCheckpoint.trim() : 'sd_xl_turbo_1.0_fp16.safetensors',
     comfyuiSteps: typeof config.comfyuiSteps === 'number' && config.comfyuiSteps > 0 ? config.comfyuiSteps : 2,
     comfyuiCfg: typeof config.comfyuiCfg === 'number' && config.comfyuiCfg >= 1 ? config.comfyuiCfg : 1,
+    comfyuiDir: typeof config.comfyuiDir === 'string' ? config.comfyuiDir.trim() : '',
+    comfyuiPythonPath: typeof config.comfyuiPythonPath === 'string' ? config.comfyuiPythonPath.trim() : '',
+    comfyuiStartupTimeoutMs: typeof config.comfyuiStartupTimeoutMs === 'number' && config.comfyuiStartupTimeoutMs > 0 ? config.comfyuiStartupTimeoutMs : 120_000,
+    comfyuiExtraArgs: typeof config.comfyuiExtraArgs === 'string' ? config.comfyuiExtraArgs.trim() : '',
+    comfyuiFineUnet: typeof config.comfyuiFineUnet === 'string' ? config.comfyuiFineUnet.trim() : '',
+    comfyuiFineClip: typeof config.comfyuiFineClip === 'string' ? config.comfyuiFineClip.trim() : '',
+    comfyuiFineClipType: typeof config.comfyuiFineClipType === 'string' && config.comfyuiFineClipType.trim() !== '' ? config.comfyuiFineClipType.trim() : 'qwen_image',
+    comfyuiFineVae: typeof config.comfyuiFineVae === 'string' ? config.comfyuiFineVae.trim() : '',
+    comfyuiFineSteps: typeof config.comfyuiFineSteps === 'number' && config.comfyuiFineSteps > 0 ? config.comfyuiFineSteps : 25,
+    comfyuiFineCfg: typeof config.comfyuiFineCfg === 'number' && config.comfyuiFineCfg >= 1 ? config.comfyuiFineCfg : 1,
     baseUrl: typeof config.baseUrl === 'string' && config.baseUrl.trim() !== '' ? config.baseUrl.trim() : 'https://api.siliconflow.cn/v1',
     model: typeof config.model === 'string' && config.model.trim() !== '' ? config.model.trim() : 'black-forest-labs/FLUX.1-schnell',
     apiKeyEnv: typeof config.apiKeyEnv === 'string' && config.apiKeyEnv.trim() !== '' ? config.apiKeyEnv.trim() : 'IMAGE_GEN_API_KEY',
     size: typeof config.size === 'string' && SIZE_PATTERN.test(config.size.trim()) ? config.size.trim() : '1024x1024',
     timeoutMs: typeof config.timeoutMs === 'number' && config.timeoutMs > 0 ? config.timeoutMs : 120_000,
-    comfyuiDir: typeof config.comfyuiDir === 'string' ? config.comfyuiDir.trim() : '',
-    comfyuiPythonPath: typeof config.comfyuiPythonPath === 'string' ? config.comfyuiPythonPath.trim() : '',
-    comfyuiStartupTimeoutMs: typeof config.comfyuiStartupTimeoutMs === 'number' && config.comfyuiStartupTimeoutMs > 0 ? config.comfyuiStartupTimeoutMs : 120_000,
-    comfyuiExtraArgs: typeof config.comfyuiExtraArgs === 'string' ? config.comfyuiExtraArgs.trim() : '',
+  }
+  if (resolved.backend === 'openai-images' && resolveFineFiles(resolved) !== undefined) {
+    throw new Error('image-gen: the openai-images backend has no local tiers — clear the comfyuiFine* file fields or switch backend to comfyui')
+  }
+  const fineFiles = resolveFineFiles(resolved)
+  if (fineFiles !== undefined && resolved.comfyuiDir !== '') {
+    // A missing fine-tier file fails the load loudly: silently falling back to
+    // the fast tier would surface only as quality loss much later.
+    validateFineTierFiles(resolved.comfyuiDir, fineFiles)
   }
   let sidecar: ComfyuiSidecar | undefined
   if (resolved.backend === 'comfyui' && resolved.comfyuiDir !== '') {
@@ -477,5 +587,5 @@ export function apply(ctx: Context, config: Config): void {
       ctx.logger.error('ComfyUI startup failed: %s', error instanceof Error ? error.message : String(error))
     })
   }
-  ctx.inject(['attachments'], () => registerTool(ctx, resolved, sidecar))
+  ctx.inject(['attachments'], () => { registerTool(ctx, resolved, sidecar, fineFiles) })
 }
