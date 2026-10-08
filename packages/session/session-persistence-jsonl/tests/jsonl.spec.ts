@@ -1,7 +1,7 @@
 import { MessageId, createMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat, symlink } from 'node:fs/promises'
+import { appendFile, mkdtemp, mkdir, rm, readFile, writeFile, readdir, stat, symlink, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { scheduler } from 'node:timers/promises'
@@ -20,6 +20,7 @@ import {
 import { runLiveWritePathContract } from '../../session-persistence/tests/live-write-contract.ts'
 import { LIVE_WRITE_BATCH_MAX_DELAY_MS, type JsonlSessionHandle } from '../src/storage.ts'
 import { JsonlGenerationSourceChangedError } from '../src/generation.ts'
+import { MANIFEST_BASENAME } from '../src/list-manifest.ts'
 import SessionStore from '@deepseek-ai/dsh-session'
 
 const statRace = vi.hoisted(() => ({
@@ -2045,7 +2046,7 @@ describe('JsonlSessionPersistence: durability and crash semantics', () => {
     queueMicrotask(() => { controller.abort(reason) })
 
     await expect(pending).rejects.toBe(reason)
-    expect(discovery).toHaveBeenCalledWith(controller.signal)
+    expect(discovery).toHaveBeenCalledWith(controller.signal, expect.anything())
   })
 })
 
@@ -2752,5 +2753,163 @@ describe('JsonlSessionPersistence: edge cases', () => {
     }, surfaceOp: 'append' }] as unknown as SessionEvent[]
     await writeLog(ctx.sessionPersistence, m, events)
     expect((await readAll(ctx.sessionPersistence, m.id)).events).toEqual(events)
+  })
+})
+
+describe('JsonlSessionPersistence: list manifest cache', () => {
+  let ctx: Context
+
+  beforeEach(async () => {
+    root = await freshRoot()
+    ctx = new Context()
+    await ctx.plugin(JsonlSessionPersistence, { root, compression: 'none' })
+  })
+
+  afterEach(async () => { await ctx.fiber.dispose() })
+
+  const manifestPath = (cwd: string | undefined): string => join(projectDir(root, cwd), MANIFEST_BASENAME)
+
+  const readManifestEntry = async (
+    cwd: string | undefined,
+    id: SessionId,
+  ): Promise<{ filename?: string } | undefined> =>
+    (JSON.parse(await readFile(manifestPath(cwd), 'utf8')) as { entries?: Record<string, { filename?: string }> })
+      .entries?.[encodeSegment(id)]
+
+  it('persists a per-project manifest and reuses it across list calls without reopening header files', async () => {
+    const first = meta('manifest-first', '/proj')
+    const second = meta('manifest-second', '/proj')
+    await writeLog(ctx.sessionPersistence, first, oneTurnLog())
+    await writeLog(ctx.sessionPersistence, second, oneTurnLog())
+
+    const expected = [first.id, second.id].sort()
+    expect((await ctx.sessionPersistence.list()).map(s => s.header.id).sort()).toEqual(expected)
+    // The warm-up call published the cache file.
+    expect((JSON.parse(await readFile(manifestPath('/proj'), 'utf8')) as { version?: unknown }).version).toBe(1)
+
+    const persistence = ctx.sessionPersistence as unknown as {
+      readFirstLine(path: string, signal?: AbortSignal): Promise<string | undefined>
+    }
+    const reopened = vi.spyOn(persistence, 'readFirstLine')
+    expect((await ctx.sessionPersistence.list()).map(s => s.header.id).sort()).toEqual(expected)
+    expect(reopened).not.toHaveBeenCalled()
+  })
+
+  it('lists a session directory added outside the manifest', async () => {
+    const cached = meta('manifest-known', '/proj')
+    await writeLog(ctx.sessionPersistence, cached, oneTurnLog())
+    expect((await ctx.sessionPersistence.list()).map(s => s.header.id)).toEqual([cached.id])
+
+    // An external writer creates a session without ever touching the manifest.
+    const foreign = meta('manifest-foreign', '/proj')
+    await mkdir(sessionDir(root, foreign.cwd, foreign.id), { recursive: true })
+    await writeFile(rawLogPath(root, foreign.cwd, foreign.id), `${JSON.stringify(toHeaderLine(foreign))}\n`)
+
+    const ids = (await ctx.sessionPersistence.list()).map(s => s.header.id).sort()
+    expect(ids).toEqual([cached.id, foreign.id].sort())
+  })
+
+  it('detects a published successor generation through the directory change', async () => {
+    const header = meta('manifest-generations', '/proj')
+    const sourcePath = historicalLogPath(root, header.cwd, header.id)
+    await mkdir(dirname(sourcePath), { recursive: true })
+    await writeFile(sourcePath, Buffer.from(
+      `${JSON.stringify(releasedV0Header(header))}\n${migrationOneTurnLog().map(event => JSON.stringify(event)).join('\n')}\n`,
+    ))
+
+    // list() reports headers through the catalog, which translates a retained
+    // historical generation to the current format version — so the direct
+    // proof of correct v0 discovery is the manifest's cached filename.
+    expect((await ctx.sessionPersistence.list()).map(s => s.header.id)).toEqual([header.id])
+    expect((await readManifestEntry('/proj', header.id))?.filename).toBe('session.jsonl')
+
+    // A write open prepares and publishes the current successor next to the
+    // retained v0 file, changing the directory mtime the cache validated.
+    const handle = await ctx.sessionPersistence.open(header.id, 'write')
+    try {
+      await handle.append([])
+      await handle.flush()
+    } finally {
+      await handle.close()
+    }
+    expect((await ctx.sessionPersistence.list()).map(s => s.header.id)).toEqual([header.id])
+    expect((await readManifestEntry('/proj', header.id))?.filename).toBe(`session.v${SESSION_FORMAT_VERSION}.jsonl`)
+  })
+
+  it('notices an appended artifact without rescanning its directory', async () => {
+    const m = meta('manifest-append', '/proj')
+    await writeLog(ctx.sessionPersistence, m, oneTurnLog())
+    const [before] = await ctx.sessionPersistence.list()
+
+    const handle = await ctx.sessionPersistence.open(m.id, 'write')
+    try {
+      await handle.append([{
+        type: 'turn/start', seq: SessionSeq(oneTurnLog().length), time: 9, data: { turn: 2 },
+      }])
+      await handle.flush()
+    } finally {
+      await handle.close()
+    }
+    const [after] = await ctx.sessionPersistence.list()
+    expect(after?.sizeBytes).toBeGreaterThan(before?.sizeBytes ?? 0)
+    expect(after?.revision).not.toBe(before?.revision)
+    expect(after?.header).toMatchObject({ id: m.id })
+  })
+
+  it.each([
+    ['missing', undefined],
+    ['torn', 'not json at all'],
+    ['foreign-version', JSON.stringify({ version: 1, formatVersion: 999, compression: 'none', entries: {} })],
+  ])('rebuilds the listing from a %s manifest', async (_name, content) => {
+    const m = meta('manifest-rebuild', '/proj')
+    await writeLog(ctx.sessionPersistence, m, oneTurnLog())
+    expect(await ctx.sessionPersistence.list()).toHaveLength(1)
+    if (content === undefined) {
+      await rm(manifestPath('/proj'))
+    } else {
+      await writeFile(manifestPath('/proj'), content)
+    }
+    const listed = await ctx.sessionPersistence.list()
+    expect(listed.map(s => s.header.id)).toEqual([m.id])
+    expect(listed[0]?.sizeBytes).toBeGreaterThan(0)
+  })
+
+  it('never fails the list when the manifest cannot be written', async () => {
+    const m = meta('manifest-readonly', '/proj')
+    await writeLog(ctx.sessionPersistence, m, oneTurnLog())
+    // A directory at the manifest path makes every publish attempt fail.
+    await mkdir(manifestPath('/proj'), { recursive: true })
+
+    const listed = await ctx.sessionPersistence.list()
+    expect(listed.map(s => s.header.id)).toEqual([m.id])
+  })
+
+  it('rejects a header tampered after caching through the full identity check', async () => {
+    const m = meta('manifest-tamper', '/proj')
+    await writeLog(ctx.sessionPersistence, m, oneTurnLog())
+    expect(await ctx.sessionPersistence.list()).toHaveLength(1)
+
+    const path = rawLogPath(root, m.cwd, m.id)
+    const lines = (await readFile(path, 'utf8')).split('\n')
+    const header = JSON.parse(lines[0] as string) as Record<string, unknown>
+    header['id'] = 'manifest-impersonated'
+    lines[0] = JSON.stringify(header)
+    await writeFile(path, lines.join('\n'))
+    // Force a distinct file mtime even on coarse timestamp granularity.
+    const shifted = new Date(Date.now() + 5000)
+    await utimes(path, shifted, shifted)
+
+    await expect(ctx.sessionPersistence.list()).rejects.toThrow(/manifest-impersonated/)
+  })
+
+  it('does not trip legacy-layout or encoding detection with a manifest present', async () => {
+    const m = meta('manifest-layout', '/proj')
+    await writeLog(ctx.sessionPersistence, m, oneTurnLog())
+    expect(await ctx.sessionPersistence.list()).toHaveLength(1)
+
+    // A retained opposite-encoding generation inside the session directory
+    // still refuses discovery, despite the cache matching beforehand.
+    await writeFile(join(sessionDir(root, m.cwd, m.id), 'session.v4.jsonl.zstd'), Buffer.from([0x28, 0xB5, 0x2F, 0xFD]))
+    await expect(ctx.sessionPersistence.list()).rejects.toThrow(/configured for compression/)
   })
 })

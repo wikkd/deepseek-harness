@@ -15,7 +15,7 @@ import {
 } from '@deepseek-ai/dsh-session-format-catalog'
 import { readdirSync, type Dirent } from 'node:fs'
 import { open, mkdir, readdir, realpath, link, rm, stat, truncate } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve, basename } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { scheduler } from 'node:timers/promises'
 import { createHash, randomBytes } from 'node:crypto'
@@ -33,6 +33,10 @@ import {
 } from '@deepseek-ai/dsh-session-persistence'
 import { JsonlBackendTracker, JsonlSessionHandle, type SessionHandleReadWindow, type StorageHandleState } from './storage.ts'
 import { SessionWriteLease } from './lease.ts'
+import {
+  manifestStatField, manifestStatMatches, ProjectManifestCache,
+  type SessionManifestEntryV1,
+} from './list-manifest.ts'
 import { SESSION_FORMAT_VERSION, KNOWN_SESSION_EVENT_TYPES, SessionId as makeSessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId, SessionHeader, SessionLogOffset as SessionLogOffsetType } from '@deepseek-ai/dsh-session'
 import { assertV4RowAdmission } from '@deepseek-ai/dsh-session-format-v3-to-v4'
@@ -226,6 +230,39 @@ function fileRevision(identity: JsonlPhysicalIdentity): PersistenceRevision {
     identity.mtimeNs,
     identity.ctimeNs,
   ].join(':'))
+}
+
+/** One manifest-validated selection with the stat identities that proved it. */
+interface DiscoveredSelection {
+  readonly project: string
+  readonly dirName: string
+  readonly selected: ResolvedJsonlGeneration
+  /** The cached or freshly read header line; `null` records a known-unreadable header file. */
+  readonly headerLine: string | null
+  /**
+   * Whether the header line comes from a cache entry whose identical file
+   * bytes already passed full identity verification, sparing the realpath
+   * checks this call. Freshly read lines always verify.
+   */
+  readonly headerVerified: boolean
+  readonly dirIdentity: JsonlPhysicalIdentity
+  readonly fileIdentity: JsonlPhysicalIdentity
+}
+
+/** Whether a Session directory's stat identity still matches its manifest entry. */
+function dirMatchesEntry(entry: SessionManifestEntryV1, identity: JsonlPhysicalIdentity): boolean {
+  return manifestStatMatches(identity.dev, entry.dirDev)
+    && manifestStatMatches(identity.mtimeNs, entry.dirMtimeNs)
+    && manifestStatMatches(identity.ctimeNs, entry.dirCtimeNs)
+}
+
+/** Whether one generation file's stat identity still matches its manifest entry. */
+function fileMatchesEntry(entry: SessionManifestEntryV1, identity: JsonlPhysicalIdentity): boolean {
+  return manifestStatMatches(identity.dev, entry.fileDev)
+    && manifestStatMatches(identity.ino, entry.fileIno)
+    && manifestStatMatches(identity.size, entry.fileSize)
+    && manifestStatMatches(identity.mtimeNs, entry.fileMtimeNs)
+    && manifestStatMatches(identity.ctimeNs, entry.fileCtimeNs)
 }
 
 /** Whether a filesystem error means absence; every non-ENOENT failure must surface. */
@@ -525,9 +562,12 @@ class JsonlSessionPersistence extends SessionPersistence {
     // append lands mid-scan is then still in this snapshot (its artifact may
     // predate the scan), so create-to-list visibility never has a hole.
     const pending = [...this.tracker.pendingEntries()]
-    const artifacts = await this.listArtifacts(signal)
+    // One call-scoped manifest working set shared by the listing and the
+    // historical corpus fingerprint, flushed best-effort once both settled.
+    const manifests = new ProjectManifestCache()
+    const artifacts = await this.listArtifacts(signal, manifests)
     const corpusRevision = artifacts.some(artifact => artifact.sourceVersion < SESSION_FORMAT_VERSION)
-      ? await this.historicalCorpusRevision(signal) : undefined
+      ? await this.historicalCorpusRevision(signal, manifests) : undefined
     for (const artifact of artifacts) {
       signal?.throwIfAborted()
       try {
@@ -549,6 +589,10 @@ class JsonlSessionPersistence extends SessionPersistence {
     for (const [id, entry] of pending) {
       if (!listed.has(id)) snapshots.push({ header: entry.header, revision: entry.revision })
     }
+    // The manifest is a pure cache: never let its write block or fail the
+    // list, and skip it entirely on cancellation so the final check rejects
+    // with the caller's exact reason.
+    if (!signal?.aborted) await manifests.flush()
     signal?.throwIfAborted()
     return snapshots
   }
@@ -1356,22 +1400,125 @@ class JsonlSessionPersistence extends SessionPersistence {
     }
   }
 
-  /** Enumerate selected physical generations without interpreting their headers or bodies. */
-  private async listGenerations(signal?: AbortSignal): Promise<ResolvedJsonlGeneration[]> {
-    const sources: ResolvedJsonlGeneration[] = []
+  /**
+   * Resolve the selected generation per Session directory, consulting the
+   * project manifest cache before any per-directory readdir or header read.
+   * Discovery itself always readdirs the project directories, so entries the
+   * manifest never saw (external writers) are still found; the cache only
+   * spares the per-directory readdir and header file I/O when the directory
+   * and file stat identities prove nothing changed. Header read failures
+   * (unsupported/corrupt) propagate and deliberately leave no cache entry,
+   * so the next list() retries the I/O.
+   */
+  private async listSelections(
+    signal?: AbortSignal,
+    manifests?: ProjectManifestCache,
+  ): Promise<DiscoveredSelection[]> {
+    const selections: DiscoveredSelection[] = []
     for (const project of await this.listProjectDirs(signal)) {
+      signal?.throwIfAborted()
+      const doc = manifests === undefined
+        ? undefined
+        : await manifests.docOf(project, this.compression, sessionFormatCatalog.currentVersion)
       for (const dir of await this.listSessionDirs(project, signal)) {
         signal?.throwIfAborted()
-        const selected = await this.resolveGenerationInDirectory(dir, signal)
-        if (selected !== undefined) sources.push(selected)
+        const dirName = basename(dir)
+        const cached = doc?.entries[dirName]
+        let selected: ResolvedJsonlGeneration | undefined
+        let headerLine: string | undefined
+        let headerVerified = false
+        let dirIdentity: JsonlPhysicalIdentity | undefined
+        let fileIdentity: JsonlPhysicalIdentity | undefined
+        if (cached !== undefined) {
+          dirIdentity = await this.statMaybe(dir, signal)
+          if (dirIdentity !== undefined && dirMatchesEntry(cached, dirIdentity)) {
+            // The directory is unchanged, so its generation set is exactly
+            // what the cache observed — no readdir needed to re-select.
+            const filePath = join(dir, cached.filename)
+            fileIdentity = await this.statMaybe(filePath, signal)
+            if (fileIdentity !== undefined && fileMatchesEntry(cached, fileIdentity)) {
+              selected = {
+                sourcePath: filePath,
+                sourceVersion: cached.sourceVersion,
+                currentPath: join(dir, generationLogFilename(sessionFormatCatalog.currentVersion, this.compression)),
+              }
+              headerLine = cached.headerLine ?? undefined
+              headerVerified = true
+            }
+          }
+        }
+        if (selected === undefined) {
+          selected = await this.resolveGenerationInDirectory(dir, signal)
+          if (selected === undefined) {
+            if (cached !== undefined) manifests?.drop(project, dirName)
+            continue
+          }
+          dirIdentity = await this.statMaybe(dir, signal)
+          fileIdentity = await this.statMaybe(selected.sourcePath, signal)
+          if (dirIdentity === undefined || fileIdentity === undefined) {
+            // The directory or its selected file vanished mid-scan; skip and
+            // let the next list() re-resolve from scratch.
+            if (cached !== undefined) manifests?.drop(project, dirName)
+            continue
+          }
+          if (cached !== undefined
+            && cached.filename === basename(selected.sourcePath)
+            && fileMatchesEntry(cached, fileIdentity)) {
+            // Same verified bytes as the cache entry: reuse its header line
+            // and refresh the directory fields that changed around it.
+            headerLine = cached.headerLine ?? undefined
+            headerVerified = true
+          } else {
+            try {
+              headerLine = await this.readHeaderLine(selected, signal)
+            } catch (error: unknown) {
+              // Discovery omits unreadable headers (corrupt Zstandard frames,
+              // unsupported formats) instead of failing the whole list; the
+              // corpus fingerprint still counts the member via its path. The
+              // omission is deterministic for unchanged bytes, so cache it.
+              if (!(error instanceof SessionFormatUnsupportedError
+                || error instanceof SessionPersistenceCorruptionError)) throw error
+              signal?.throwIfAborted()
+              headerLine = undefined
+            }
+          }
+          manifests?.put(project, dirName, {
+            filename: basename(selected.sourcePath),
+            sourceVersion: selected.sourceVersion,
+            headerLine: headerLine ?? null,
+            dirDev: manifestStatField(dirIdentity.dev),
+            dirMtimeNs: manifestStatField(dirIdentity.mtimeNs),
+            dirCtimeNs: manifestStatField(dirIdentity.ctimeNs),
+            fileDev: manifestStatField(fileIdentity.dev),
+            fileIno: manifestStatField(fileIdentity.ino),
+            fileSize: manifestStatField(fileIdentity.size),
+            fileMtimeNs: manifestStatField(fileIdentity.mtimeNs),
+            fileCtimeNs: manifestStatField(fileIdentity.ctimeNs),
+          })
+        }
+        /* v8 ignore next -- every push path above assigned all three fields. */
+        if (dirIdentity === undefined || fileIdentity === undefined) continue
+        selections.push({
+          project,
+          dirName,
+          selected,
+          headerLine: headerLine ?? null,
+          headerVerified,
+          dirIdentity,
+          fileIdentity,
+        })
       }
     }
-    return sources
+    return selections
   }
 
   /** Historical logical events depend on the corpus, including members with unreadable headers. */
-  private async historicalCorpusRevision(signal?: AbortSignal): Promise<string> {
-    const paths = (await this.listGenerations(signal)).map(source => source.sourcePath).sort()
+  private async historicalCorpusRevision(
+    signal?: AbortSignal,
+    manifests?: ProjectManifestCache,
+  ): Promise<string> {
+    const selections = await this.listSelections(signal, manifests)
+    const paths = selections.map(discovered => discovered.selected.sourcePath).sort()
     const hash = createHash('sha256')
     for (const path of paths) {
       signal?.throwIfAborted()
@@ -1388,19 +1535,40 @@ class JsonlSessionPersistence extends SessionPersistence {
     return hash.digest('hex')
   }
 
+  /** Stat one path, reporting absence as `undefined`; every other failure surfaces. */
+  private async statMaybe(path: string, signal?: AbortSignal): Promise<JsonlPhysicalIdentity | undefined> {
+    signal?.throwIfAborted()
+    try {
+      return await stat(path, { bigint: true })
+    } catch (error: unknown) {
+      signal?.throwIfAborted()
+      if (isENOENT(error)) return undefined
+      throw error
+    }
+  }
+
   private async listArtifacts(
     signal?: AbortSignal,
+    manifests?: ProjectManifestCache,
   ): Promise<Array<{ header: SessionHeader; path: string; sourceVersion: number }>> {
     signal?.throwIfAborted()
     await this.ensureRootEncoding()
     signal?.throwIfAborted()
     const artifacts: Array<{ header: SessionHeader; path: string; sourceVersion: number }> = []
     const ids = new Set<SessionId>()
-    for (const selected of await this.listGenerations(signal)) {
+    for (const discovered of await this.listSelections(signal, manifests)) {
       signal?.throwIfAborted()
+      const selected = discovered.selected
       let header: SessionHeader | undefined
       try {
-        header = await this.readGenerationHeader(selected, undefined, signal)
+        if (discovered.headerLine === null) {
+          // A cached entry that already proved the header file unreadable.
+          header = undefined
+        } else {
+          header = await this.decodeHeaderLine(
+            discovered.headerLine, selected, undefined, signal, !discovered.headerVerified,
+          )
+        }
       } catch (error: unknown) {
         if (error instanceof SessionFormatUnsupportedError || error instanceof SessionPersistenceCorruptionError) continue
         throw error
@@ -1418,24 +1586,32 @@ class JsonlSessionPersistence extends SessionPersistence {
     return artifacts
   }
 
-  /** Read and translate one selected generation header without inspecting its body. */
-  private async readGenerationHeader(
+  /** Read one selected generation's header line without interpreting it (ENOENT → undefined). */
+  private async readHeaderLine(
     selected: ResolvedJsonlGeneration,
-    expectedId?: SessionId,
     signal?: AbortSignal,
-  ): Promise<SessionHeader | undefined> {
-    let first: string | undefined
+  ): Promise<string | undefined> {
     try {
-      first = this.compression === 'zstd'
+      const first = this.compression === 'zstd'
         ? await this.readFirstZstdLine(selected.sourcePath, signal)
         : await this.readFirstLine(selected.sourcePath, signal)
+      signal?.throwIfAborted()
+      return first
     } catch (error: unknown) {
       signal?.throwIfAborted()
       if (isENOENT(error)) return undefined
       throw error
     }
-    signal?.throwIfAborted()
-    if (first === undefined) return undefined
+  }
+
+  /** Translate one header line; `verifyIdentity=false` trusts a byte-identical cached artifact. */
+  private async decodeHeaderLine(
+    first: string,
+    selected: ResolvedJsonlGeneration,
+    expectedId: SessionId | undefined,
+    signal: AbortSignal | undefined,
+    verifyIdentity: boolean,
+  ): Promise<SessionHeader | undefined> {
     let value: unknown
     try {
       value = JSON.parse(first)
@@ -1464,14 +1640,27 @@ class JsonlSessionPersistence extends SessionPersistence {
     }
     if (result.status === 'malformed') return undefined
     const header = this.currentHeader(result.header)
-    await this.assertStoredIdentity(
-      selected.sourcePath,
-      selected.sourceVersion,
-      header,
-      expectedId,
-      signal,
-    )
+    if (verifyIdentity) {
+      await this.assertStoredIdentity(
+        selected.sourcePath,
+        selected.sourceVersion,
+        header,
+        expectedId,
+        signal,
+      )
+    }
     return header
+  }
+
+  /** Read and translate one selected generation header without inspecting its body. */
+  private async readGenerationHeader(
+    selected: ResolvedJsonlGeneration,
+    expectedId?: SessionId,
+    signal?: AbortSignal,
+  ): Promise<SessionHeader | undefined> {
+    const first = await this.readHeaderLine(selected, signal)
+    if (first === undefined) return undefined
+    return this.decodeHeaderLine(first, selected, expectedId, signal, true)
   }
 
   /** Convert format-catalog string identities to current branded Session metadata. */

@@ -10,8 +10,9 @@ import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import {
-  generationLogPath, logPath, scanLog, sessionDir, toHeaderLine, type JsonlCompression,
+  generationLogPath, logPath, projectDir, scanLog, sessionDir, toHeaderLine, type JsonlCompression,
 } from '../src/format.ts'
+import { MANIFEST_BASENAME } from '../src/list-manifest.ts'
 import {
   compressZstdFrame, createZstdFrameDecoder, decompressZstdFrame, decompressZstdPrefix, scanZstdFrames,
   type ZstdFrameDecoder,
@@ -587,6 +588,10 @@ describe('JsonlSessionPersistence: default Zstandard encoding', () => {
         return result
       })
 
+      // The warm-up list cached the header; the cancellation contract pins
+      // the cold listing path (one header read, then abort), so drop the
+      // per-project manifest first.
+      await rm(join(projectDir(root, header.cwd), MANIFEST_BASENAME))
       await expect(ctx.sessionPersistence.list({ signal: controller.signal })).rejects.toBe(reason)
       expect(read).toHaveBeenCalledTimes(1)
     },
