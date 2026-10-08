@@ -1,15 +1,17 @@
 /**
- * General Settings row for the desktop pet: the visibility switch plus the
- * size, opacity, and dock-corner segmented controls, backed by the plugin's
- * own settings namespace. Registered by this package — the pet feature owns
- * its own settings surface.
+ * General Settings row for the desktop pet: the visibility switch, the size,
+ * opacity, and dock-corner segmented controls, the ambient motion tempo and
+ * lip-sync toggles, and the position reset — all backed by the plugin's own
+ * settings namespace. Registered by this package — the pet feature owns its
+ * own settings surface.
  */
-import { Switch, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, SegmentedControl, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import {
-  PET_ANCHOR_FIELD, PET_HEIGHT_FIELD, PET_OPACITY_FIELD, PET_VISIBLE_FIELD,
+  PET_ANCHOR_FIELD, PET_HEIGHT_FIELD, PET_LIP_SYNC_FIELD, PET_MOTION_RATE_FIELD,
+  PET_OPACITY_FIELD, PET_VISIBLE_FIELD,
   type PetAnchor, type PetSettings,
 } from '../pet-settings.ts'
 import css from './PetRow.module.css'
@@ -22,6 +24,8 @@ export interface PetRowInjected {
   }
   /** Write one preference field (persisted through the settings service). */
   setField: (field: string, value: unknown) => void
+  /** Drop the dragged position and re-dock the pet at its anchor corner. */
+  resetPosition: () => void
 }
 
 /** Full Settings-row props. */
@@ -49,7 +53,7 @@ function nearestKey<V extends string>(presets: Record<V, number>, value: number)
  * @param props - composed Settings slot props.
  * @returns the settings row.
  */
-export function PetRow({ useSettings, setField, t }: PetRowProps) {
+export function PetRow({ useSettings, setField, resetPosition, t }: PetRowProps) {
   const settings = useSettings(value => value)
   return (
     <div className={css.row}>
@@ -98,6 +102,37 @@ export function PetRow({ useSettings, setField, t }: PetRowProps) {
             ]}
             onChange={(value: PetAnchor) => setField(PET_ANCHOR_FIELD, value)}
           />
+        </div>
+        <div className={css.field}>
+          <span className={css.label}>{t('pet.rate')}</span>
+          <SegmentedControl
+            id='live2d-pet-rate' label={t('pet.rate')}
+            value={settings.motionRate}
+            options={[
+              { value: 'calm', label: t('pet.rate.calm') },
+              { value: 'normal', label: t('pet.rate.normal') },
+              { value: 'lively', label: t('pet.rate.lively') },
+            ]}
+            onChange={value => setField(PET_MOTION_RATE_FIELD, value)}
+          />
+        </div>
+        <div className={css.field}>
+          <span className={css.label}>{t('pet.lipSync')}</span>
+          <SegmentedControl
+            id='live2d-pet-lipsync' label={t('pet.lipSync')}
+            value={settings.lipSync ? 'on' : 'off'}
+            options={[
+              { value: 'on', label: t('pet.lipSync.on') },
+              { value: 'off', label: t('pet.lipSync.off') },
+            ]}
+            onChange={value => setField(PET_LIP_SYNC_FIELD, value === 'on')}
+          />
+        </div>
+        <div className={css.field}>
+          <span className={css.label}>{t('pet.resetPosition')}</span>
+          <Button size='sm' variant='outline' onClick={resetPosition}>
+            {t('pet.resetPosition')}
+          </Button>
         </div>
       </div>
     </div>

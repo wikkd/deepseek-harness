@@ -10,7 +10,8 @@ import type {} from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
 import {
   PET_ANCHOR_DEFAULT, PET_HEIGHT_DEFAULT, PET_HEIGHT_MAX, PET_HEIGHT_MIN,
-  PET_OPACITY_DEFAULT, PET_OPACITY_MIN, PET_VISIBLE_DEFAULT,
+  PET_LIP_SYNC_DEFAULT, PET_MOTION_RATE_DEFAULT, PET_OPACITY_DEFAULT,
+  PET_OPACITY_MIN, PET_VISIBLE_DEFAULT,
 } from './pet-settings.ts'
 
 export { PET_SETTINGS_NAMESPACE, PET_VISIBLE_DEFAULT, PET_VISIBLE_FIELD, type PetSettings } from './pet-settings.ts'
@@ -25,6 +26,10 @@ export interface Config {
   opacity: Volatile<number>
   /** Which lower corner the pet docks to. */
   anchor: Volatile<'left' | 'right'>
+  /** How often the pet changes its ambient motion while idle. */
+  motionRate: Volatile<'calm' | 'normal' | 'lively'>
+  /** Whether the pet's mouth follows the spoken replies. */
+  lipSync: Volatile<boolean>
 }
 
 /** Live desktop-pet preferences. */
@@ -33,6 +38,8 @@ export const Config = z.object({
   height: z.number().min(PET_HEIGHT_MIN).max(PET_HEIGHT_MAX).default(PET_HEIGHT_DEFAULT).volatile(),
   opacity: z.number().min(PET_OPACITY_MIN).max(1).default(PET_OPACITY_DEFAULT).volatile(),
   anchor: z.union(['left', 'right']).default(PET_ANCHOR_DEFAULT).volatile(),
+  motionRate: z.union(['calm', 'normal', 'lively']).default(PET_MOTION_RATE_DEFAULT).volatile(),
+  lipSync: z.boolean().default(PET_LIP_SYNC_DEFAULT).volatile(),
 })
 
 /**

@@ -1,12 +1,18 @@
 /**
  * 小圆 Live2D desktop pet, browser half. A draggable Madoka Kaname mascot
- * floats at the client's lower corner: idle motions and expressions cycle on a
- * timer, clicking the character plays another one, dragging repositions the
- * pet (persisted in localStorage), and a General-settings row owns the whole
- * appearance — visibility, size, opacity, and dock corner — through the
- * plugin's own settings namespace. While the TTS plugin plays a spoken reply,
- * the playing element is tapped into the motion manager's lip-sync path, which
- * drives the model's mouth.
+ * floats at the client's lower corner: idle motions and expressions cycle on
+ * a shuffled bag timer, the eyes track the pointer, clicking the character
+ * plays another motion, dragging repositions the pet (persisted in
+ * localStorage), and a General-settings row owns the whole appearance —
+ * visibility, size, opacity, dock corner, ambient tempo, and lip sync —
+ * through the plugin's own settings namespace. While the TTS plugin plays a
+ * spoken reply the playing element is tapped into the motion manager's
+ * lip-sync path (the mouth), or — when the tap is unavailable — a fallback
+ * talking cue keeps the pet visibly speaking; while the session's agent
+ * works, a thinking cue plays once.
+ *
+ * Power: the ticker is capped at 30fps and stops whenever the tab is hidden
+ * or the pet is toggled off.
  *
  * The Cubism core loads from the web app's static directory before the Live2D
  * runtime evaluates, and the model files are served from the same directory.
@@ -34,12 +40,15 @@ import { installLipSync } from './lip-sync.ts'
 import { en, zh, type PetSettingsKey } from './locales.ts'
 import { PetRow, type PetRowInjected } from './PetRow.tsx'
 import {
-  PET_SETTINGS_DEFAULTS, PET_SETTINGS_NAMESPACE,
-  type PetSettings,
+  PET_MOTION_INTERVALS, PET_SETTINGS_DEFAULTS, PET_SETTINGS_NAMESPACE,
+  type PetMotionRate, type PetSettings,
 } from '../pet-settings.ts'
 
-/** Services required by the browser half (settings transport + row surfaces). */
-export const inject: string[] = ['slots', 'locale', 'remote', 'configForms']
+/**
+ * Services required by the browser half. `uiSession` feeds the thinking cue;
+ * it is resolved defensively, so a composition without it only loses that cue.
+ */
+export const inject: string[] = ['slots', 'locale', 'remote', 'configForms', 'uiSession']
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -55,15 +64,44 @@ const CORE_URL = '/live2d/live2dcubismcore.js'
 const MODEL_URL = '/live2d/madoka_200100/model.model3.json'
 /** Host width per unit of pet height; the two scale together. */
 const HOST_ASPECT = 260 / 300
-/** Milliseconds between ambient motion changes while the pet idles. */
-const AMBIENT_INTERVAL_MS = 9000
 /** Pointer travel below this distance counts as a click, not a drag. */
 const CLICK_SLOP_PX = 6
 /** The model's single motion group; indexes 0-8 address individual clips. */
 const MOTION_GROUP = 'Motion'
+/** Clips in the motion group. */
+const MOTION_COUNT = 9
+/** Fallback talking-cue tempo while the lip-sync tap is unavailable. */
+const FALLBACK_TALK_INTERVAL_MS = 2800
 /** Settings-row copy namespace owned by this plugin. */
 const SETTINGS_NS = 'settings.live2dAvatar'
 const STORAGE_KEY = 'dsh-live2d-avatar-position'
+
+/**
+ * The face of ui-session this plugin consumes. Structural on purpose: the
+ * pet does not take a compile-time dependency on ui-session, so a
+ * composition without it still boots (and only loses the thinking cue).
+ */
+interface UiSessionFace {
+  sessionStatus: {
+    getSnapshot(): Map<string, { running?: boolean } | undefined>
+    subscribe(listener: () => void): () => void
+  }
+  adapter: {
+    current: {
+      getSnapshot(): { key?: unknown }
+      subscribe(listener: () => void): () => void
+    }
+  }
+}
+
+/** Resolve one client service defensively; absence reads as undefined. */
+function resolveService(ctx: ClientContext, name: string): unknown {
+  try {
+    return (ctx as unknown as { get(service: string): unknown }).get(name)
+  } catch {
+    return undefined
+  }
+}
 
 /** The pet-facing face of the model this plugin drives. */
 interface PetModel {
@@ -73,6 +111,7 @@ interface PetModel {
   width: number
   height: number
   internalModel: { height: number }
+  focus(x: number, y: number): void
 }
 
 interface StoredPosition {
@@ -122,6 +161,7 @@ function restorePosition(host: HTMLDivElement, settings: PetSettings): void {
  */
 export function apply(ctx: ClientContext): void {
   const form: ConfigForm<PetSettings> = ctx.configForms.get<PetSettings>(PET_SETTINGS_NAMESPACE)
+  const uiSession = resolveService(ctx, 'uiSession') as UiSessionFace | undefined
 
   ctx.effect(() => ctx.locale.register(SETTINGS_NS, { zh, en }), 'ui-live2d-avatar: settings row dictionaries')
 
@@ -140,6 +180,7 @@ export function apply(ctx: ClientContext): void {
   // arrive before (or after) the pet is mounted are absorbed there.
   let applyVisibility: (() => void) | undefined
   let applyAppearance: ((next: PetSettings, previous: PetSettings) => void) | undefined
+  let resetPosition: (() => void) | undefined
 
   ctx.effect(() => form.subscribe(() => {
     const next = form.getSnapshot().value
@@ -159,6 +200,7 @@ export function apply(ctx: ClientContext): void {
     inject: (): PetRowInjected => ({
       hooks: { settings: settingsSnapshot },
       setField: (field, value) => { void form.set(field, value) },
+      resetPosition: () => { resetPosition?.() },
     }),
   }, PetRow))
 
@@ -176,22 +218,66 @@ export function apply(ctx: ClientContext): void {
 
     let disposed = false
     let teardown: (() => void) | undefined
-    let app: { ticker: { start(): void; stop(): void }; screen: { width: number; height: number } } | undefined
+    let app: { ticker: { start(): void; stop(): void; maxFPS: number }; screen: { width: number; height: number } } | undefined
     let model: PetModel | undefined
+    let canvas: HTMLCanvasElement | undefined
+
+    // ── speech + mood state ───────────────────────────────────────────────────
+    /** An observed TTS playback is live (tapped or fallback). */
+    let speechActive = false
+    /** Fallback talking-cue interval while playback is live but untapped. */
+    let fallbackTalk: number | undefined
+    /** The session agent's last known running state. */
+    let thinking = false
+    /** Shuffle bag: every clip plays once before any repeats. */
+    let bag: number[] = []
+
+    const nextMotionIndex = (): number => {
+      if (bag.length === 0) {
+        bag = Array.from({ length: MOTION_COUNT }, (_, index) => index)
+        for (let index = bag.length - 1; index > 0; index -= 1) {
+          const swap = Math.floor(Math.random() * (index + 1))
+          ;[bag[index], bag[swap]] = [bag[swap]!, bag[index]!]
+        }
+      }
+      return bag.pop()!
+    }
+
+    // Filled in by boot once the model exists; the mood and settings paths
+    // call through these so they stay safe before (and after) boot.
+    let petMotion: (() => void) | undefined
+    let petExpression: (() => void) | undefined
+
+    const stopFallbackTalk = (): void => {
+      if (fallbackTalk === undefined) return
+      window.clearInterval(fallbackTalk)
+      fallbackTalk = undefined
+    }
+    const startFallbackTalk = (): void => {
+      if (fallbackTalk !== undefined) return
+      petMotion?.()
+      fallbackTalk = window.setInterval(() => {
+        if (settings.visible) petMotion?.()
+      }, FALLBACK_TALK_INTERVAL_MS)
+    }
+    const setSpeech = (active: boolean, analyzed: boolean): void => {
+      speechActive = active
+      if (active && analyzed) stopFallbackTalk()
+      if (active && !analyzed && settings.lipSync) startFallbackTalk()
+      if (!active) stopFallbackTalk()
+    }
 
     const applyPetVisibility = (): void => {
       host.style.display = settings.visible ? '' : 'none'
       if (app === undefined) return
-      if (settings.visible) app.ticker.start()
+      // A hidden document keeps no ticker either: the pet renders nothing
+      // the user could see, so the frames are pure waste.
+      if (settings.visible && !document.hidden) app.ticker.start()
       else app.ticker.stop()
     }
     applyVisibility = applyPetVisibility
     applyPetVisibility()
 
-    // Size, opacity, and dock side react live: the host resizes (the canvas
-    // follows through resizeTo), the model rescales and re-hugs the bottom,
-    // and an anchor flip re-docks the pet to its corner. Dragged positions
-    // keep applying afterwards — a flip just moves the pet once.
     const resizeHost = (value: PetSettings): void => {
       host.style.width = `${Math.round(value.height * HOST_ASPECT)}px`
       host.style.height = `${value.height}px`
@@ -203,12 +289,35 @@ export function apply(ctx: ClientContext): void {
       model.x = (app.screen.width - model.width) / 2
       model.y = app.screen.height - model.height
     }
+    // Size, opacity, and dock side react live: the host resizes (the canvas
+    // follows through resizeTo), the model rescales and re-hugs the bottom,
+    // and an anchor flip re-docks the pet to its corner. Dragged positions
+    // keep applying afterwards — a flip just moves the pet once.
     applyAppearance = (next: PetSettings, previous: PetSettings): void => {
       resizeHost(next)
       if (next.anchor !== previous.anchor) placeAtAnchor(host, next)
       rescaleModel(next)
+      // The ambient tempo rebuilds live when the rate preset flips.
+      if (next.motionRate !== previous.motionRate) restartAmbient(next.motionRate)
     }
     resizeHost(settings)
+
+    resetPosition = (): void => {
+      try { window.localStorage.removeItem(STORAGE_KEY) } catch { /* position only */ }
+      placeAtAnchor(host, settings)
+    }
+
+    let ambient: number | undefined
+    const restartAmbient = (rate: PetMotionRate): void => {
+      if (ambient !== undefined) window.clearInterval(ambient)
+      ambient = window.setInterval(() => {
+        // Hidden pets and speaking pets skip the ambient churn; the fallback
+        // cue and the lip-sync path own the motion while TTS plays.
+        if (!settings.visible || speechActive) return
+        petMotion?.()
+        if (Math.random() < 0.6) petExpression?.()
+      }, PET_MOTION_INTERVALS[rate])
+    }
 
     const boot = (async () => {
       await loadCubismCore()
@@ -218,13 +327,16 @@ export function apply(ctx: ClientContext): void {
         import('pixi.js'),
       ])
       if (disposed) return
-      const canvas = document.createElement('canvas')
-      canvas.style.cssText = 'width: 100%; height: 100%; display: block;'
+      const petCanvas = document.createElement('canvas')
+      canvas = petCanvas
+      petCanvas.style.cssText = 'width: 100%; height: 100%; display: block;'
       const petApp = new PIXI.Application({
-        view: canvas, backgroundAlpha: 0, autoDensity: true,
+        view: petCanvas, backgroundAlpha: 0, autoDensity: true,
         resolution: Math.min(window.devicePixelRatio || 1, 2), resizeTo: host,
       })
-      host.appendChild(canvas)
+      // Idle mascot: 30fps is indistinguishable here and halves the GPU work.
+      petApp.ticker.maxFPS = 30
+      host.appendChild(petCanvas)
       try {
         // The automator falls back to a global `window.PIXI` when no ticker is
         // given; this bundle inlines pixi and never exposes that global, so the
@@ -249,6 +361,13 @@ export function apply(ctx: ClientContext): void {
         model.y = petApp.screen.height - model.height
         petApp.stage.addChild(pet)
 
+        petMotion = (): void => { void pet.motion(MOTION_GROUP, nextMotionIndex()) }
+        petExpression = (): void => {
+          const expressions = pet.internalModel.motionManager?.expressionManager
+          if (expressions !== undefined) expressions.setRandomExpression()
+        }
+        petMotion()
+
         // Feed the playing audio into the model's own lip-sync path: while
         // `currentAudio` is set, the motion manager reads `currentAnalyzer`
         // every update and writes the mouth parameter over the idle motions
@@ -256,61 +375,61 @@ export function apply(ctx: ClientContext): void {
         // Cubism4 face is safe here — every cubism4 model builds one — and is
         // what exposes the typed `currentAudio`/`currentAnalyzer` pair.
         const internalModel = pet.internalModel as Cubism4InternalModel
-        let speaking = false
         const speech = installLipSync({
           tap: (element, analyser) => {
-            speaking = true
+            if (!settings.lipSync) return
+            setSpeech(true, true)
             internalModel.motionManager.currentAudio = element
             internalModel.motionManager.currentAnalyzer = analyser
           },
           untap: () => {
-            speaking = false
+            setSpeech(false, false)
             delete internalModel.motionManager.currentAudio
             delete internalModel.motionManager.currentAnalyzer
           },
+          onUnavailable: () => {
+            if (!settings.lipSync) return
+            setSpeech(true, false)
+          },
         })
 
-        const random = (bound: number): number => Math.floor(Math.random() * bound)
-        const play = (): void => {
-          // Hidden pets run no ticker; skip the blind motion/expression churn.
-          if (!settings.visible || speaking) return
-          void pet.motion(MOTION_GROUP, random(9))
-          const expressions = pet.internalModel.motionManager?.expressionManager
-          if (expressions !== undefined && Math.random() < 0.6) {
-            expressions.setRandomExpression()
-          }
+        // The eyes follow the pointer everywhere in the window; the focus
+        // controller eases internally, so per-move updates stay smooth.
+        const onWindowPointerMove = (event: PointerEvent): void => {
+          if (!settings.visible || canvas === undefined) return
+          const rect = canvas.getBoundingClientRect()
+          model?.focus(event.clientX - rect.left, event.clientY - rect.top)
         }
-        void pet.motion(MOTION_GROUP, 0)
-        const ambient = window.setInterval(play, AMBIENT_INTERVAL_MS)
+        window.addEventListener('pointermove', onWindowPointerMove, { passive: true })
 
-        let dragging = false
-        let moved = 0
-        let offsetX = 0
-        let offsetY = 0
+        const onVisibilityChange = (): void => { applyPetVisibility() }
+        document.addEventListener('visibilitychange', onVisibilityChange)
+
         const onPointerDown = (event: PointerEvent): void => {
-          dragging = true
-          moved = 0
-          offsetX = event.clientX - host.offsetLeft
-          offsetY = event.clientY - host.offsetTop
-          host.style.cursor = 'grabbing'
           host.setPointerCapture(event.pointerId)
+          host.style.cursor = 'grabbing'
+          host.dataset.dragOriginX = String(event.clientX - host.offsetLeft)
+          host.dataset.dragOriginY = String(event.clientY - host.offsetTop)
+          host.dataset.dragMoved = '0'
         }
         const onPointerMove = (event: PointerEvent): void => {
-          if (!dragging) return
-          const left = event.clientX - offsetX
-          const top = event.clientY - offsetY
-          moved += Math.abs(event.movementX) + Math.abs(event.movementY)
+          if (host.style.cursor !== 'grabbing') return
+          const originX = Number(host.dataset.dragOriginX ?? '0')
+          const originY = Number(host.dataset.dragOriginY ?? '0')
+          const left = event.clientX - originX
+          const top = event.clientY - originY
+          host.dataset.dragMoved = String(Number(host.dataset.dragMoved ?? '0')
+            + Math.abs(event.movementX) + Math.abs(event.movementY))
           // Same clamps as restorePosition: the pet never leaves the viewport.
           host.style.left = `${Math.min(Math.max(0, left), Math.max(0, window.innerWidth - host.offsetWidth))}px`
           host.style.top = `${Math.min(Math.max(0, top), Math.max(0, window.innerHeight - 80))}px`
         }
         const onPointerUp = (event: PointerEvent): void => {
-          if (!dragging) return
-          dragging = false
+          if (host.style.cursor !== 'grabbing') return
           host.style.cursor = 'grab'
           host.releasePointerCapture(event.pointerId)
-          if (moved <= CLICK_SLOP_PX) {
-            play()
+          if (Number(host.dataset.dragMoved ?? '0') <= CLICK_SLOP_PX) {
+            petMotion?.()
             return
           }
           try {
@@ -328,8 +447,11 @@ export function apply(ctx: ClientContext): void {
         host.addEventListener('pointerup', onPointerUp)
 
         teardown = () => {
-          window.clearInterval(ambient)
+          if (ambient !== undefined) window.clearInterval(ambient)
+          stopFallbackTalk()
           speech.dispose()
+          window.removeEventListener('pointermove', onWindowPointerMove)
+          document.removeEventListener('visibilitychange', onVisibilityChange)
           host.removeEventListener('pointerdown', onPointerDown)
           host.removeEventListener('pointermove', onPointerMove)
           host.removeEventListener('pointerup', onPointerUp)
@@ -348,12 +470,40 @@ export function apply(ctx: ClientContext): void {
       console.warn(`ui-live2d-avatar: pet unavailable (${message})`)
     })
 
+    restartAmbient(settings.motionRate)
+
+    // Thinking cue: when the current session's agent starts (or stops) working,
+    // one motion + expression marks the shift — skipped while TTS plays.
+    if (uiSession !== undefined) {
+      const syncThinking = (): void => {
+        const key = uiSession.adapter.current.getSnapshot().key
+        const running = typeof key === 'string'
+          && uiSession.sessionStatus.getSnapshot().get(key)?.running === true
+        if (running === thinking) return
+        thinking = running
+        if (running && !speechActive && settings.visible) {
+          petMotion?.()
+          petExpression?.()
+        }
+      }
+      const disposeCurrent = uiSession.adapter.current.subscribe(syncThinking)
+      const disposeStatus = uiSession.sessionStatus.subscribe(syncThinking)
+      const disposeTeardown = teardown
+      teardown = (): void => {
+        disposeCurrent()
+        disposeStatus()
+        disposeTeardown?.()
+      }
+    }
+
     return () => {
       disposed = true
       applyVisibility = undefined
       applyAppearance = undefined
+      resetPosition = undefined
       teardown?.()
       host.remove()
     }
   }, 'ui-live2d-avatar: desktop pet')
+
 }

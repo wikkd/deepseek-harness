@@ -17,6 +17,10 @@ export const PET_HEIGHT_FIELD = 'height'
 export const PET_OPACITY_FIELD = 'opacity'
 /** Which lower corner the pet docks to before the user drags it. */
 export const PET_ANCHOR_FIELD = 'anchor'
+/** How often the pet changes its ambient motion while idle. */
+export const PET_MOTION_RATE_FIELD = 'motionRate'
+/** Whether the pet's mouth follows the spoken replies. */
+export const PET_LIP_SYNC_FIELD = 'lipSync'
 
 /** Preference values before the user has touched the pet. */
 export const PET_VISIBLE_DEFAULT = true
@@ -26,9 +30,20 @@ export const PET_HEIGHT_MAX = 480
 export const PET_OPACITY_DEFAULT = 1
 export const PET_OPACITY_MIN = 0.2
 export const PET_ANCHOR_DEFAULT = 'right'
+export const PET_MOTION_RATE_DEFAULT = 'normal'
+export const PET_LIP_SYNC_DEFAULT = true
 
+/** One ambient-motion tempo. */
+export type PetMotionRate = 'calm' | 'normal' | 'lively'
 /** One dock side. */
 export type PetAnchor = 'left' | 'right'
+
+/** Ambient interval in milliseconds per tempo. */
+export const PET_MOTION_INTERVALS: Record<PetMotionRate, number> = {
+  calm: 15_000,
+  normal: 9_000,
+  lively: 4_500,
+}
 
 /** Resolved pet preferences as the settings form serves them. */
 export interface PetSettings {
@@ -40,6 +55,10 @@ export interface PetSettings {
   opacity: number
   /** Which lower corner the pet docks to. */
   anchor: PetAnchor
+  /** How often the pet changes its ambient motion while idle. */
+  motionRate: PetMotionRate
+  /** Whether the pet's mouth follows the spoken replies. */
+  lipSync: boolean
 }
 
 /** The preference values used before the first settings acceptance lands. */
@@ -48,4 +67,6 @@ export const PET_SETTINGS_DEFAULTS: PetSettings = {
   height: PET_HEIGHT_DEFAULT,
   opacity: PET_OPACITY_DEFAULT,
   anchor: PET_ANCHOR_DEFAULT,
+  motionRate: PET_MOTION_RATE_DEFAULT,
+  lipSync: PET_LIP_SYNC_DEFAULT,
 }

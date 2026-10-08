@@ -15,6 +15,14 @@ export const zh = {
   'pet.anchor': '停靠',
   'pet.anchor.left': '左下角',
   'pet.anchor.right': '右下角',
+  'pet.rate': '动作频率',
+  'pet.rate.calm': '安静',
+  'pet.rate.normal': '标准',
+  'pet.rate.lively': '活泼',
+  'pet.lipSync': '口型跟随',
+  'pet.lipSync.on': '开',
+  'pet.lipSync.off': '关',
+  'pet.resetPosition': '重置位置',
 } satisfies Record<string, string>
 
 /** The settings.live2dAvatar namespace key union. */
@@ -35,4 +43,12 @@ export const en = {
   'pet.anchor': 'Dock',
   'pet.anchor.left': 'Bottom left',
   'pet.anchor.right': 'Bottom right',
+  'pet.rate': 'Motion tempo',
+  'pet.rate.calm': 'Calm',
+  'pet.rate.normal': 'Standard',
+  'pet.rate.lively': 'Lively',
+  'pet.lipSync': 'Lip sync',
+  'pet.lipSync.on': 'On',
+  'pet.lipSync.off': 'Off',
+  'pet.resetPosition': 'Reset position',
 } satisfies Record<PetSettingsKey, string>

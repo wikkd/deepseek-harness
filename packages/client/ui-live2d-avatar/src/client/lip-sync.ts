@@ -6,6 +6,12 @@
  * and hands each playing element plus a shared `AnalyserNode` to the caller,
  * which feeds them into the Live2D motion manager's own lip-sync path
  * (`currentAudio`/`currentAnalyzer`).
+ *
+ * A tap can be unavailable (another tapper won the media source race): the
+ * caller learns so through `onUnavailable` and can fall back to a visual
+ * "speaking" cue. Playback ends are reported through `untap` for BOTH
+ * outcomes — the observed element is tracked from the play event on, so an
+ * untapped-audio playback still ends the caller's cue.
  * @module @deepseek-ai/dsh-client-ui-live2d-avatar/client/lip-sync
  */
 
@@ -20,8 +26,15 @@ export interface LipSyncHooks {
    * @param analyser - the analyser attached to it.
    */
   tap(element: HTMLAudioElement, analyser: AnalyserNode): void
-  /** The tapped element stopped; lip sync should close the mouth. */
+  /** The observed element stopped; lip sync should close the mouth. */
   untap(): void
+  /**
+   * An element started playing but cannot be tapped for analysis (the media
+   * source race was lost, or the context never reached a running state).
+   * Playback continues untouched; the caller can run a visual fallback cue
+   * until the matching {@link untap}.
+   */
+  onUnavailable?(): void
 }
 
 /** Audio observation plus its teardown. */
@@ -46,12 +59,17 @@ export function installLipSync(hooks: LipSyncHooks): LipSyncDriver {
   }
   const native = window.Audio
   const graphs = new WeakMap<HTMLAudioElement, AnalyserNode>()
-  let tapped: HTMLAudioElement | undefined
+  /** The element whose play/stop events currently drive the caller's cues. */
+  let observed: HTMLAudioElement | undefined
   let context: AudioContext | undefined
   let disposed = false
 
   const attach = (element: HTMLAudioElement): void => {
-    if (context === undefined || context.state !== 'running' || disposed) return
+    if (disposed) return
+    if (context === undefined || context.state !== 'running') {
+      hooks.onUnavailable?.()
+      return
+    }
     let analyser = graphs.get(element)
     if (analyser === undefined) {
       try {
@@ -66,18 +84,19 @@ export function installLipSync(hooks: LipSyncHooks): LipSyncDriver {
         // race, playback continues and the pet simply keeps a closed mouth.
         const message = error instanceof Error ? error.message : String(error)
         console.warn(`ui-live2d-avatar: lip-sync tap unavailable (${message})`)
+        hooks.onUnavailable?.()
         return
       }
     }
     // A resumed element already carries its graph; the tap must re-engage so
     // the caller's currentAudio/currentAnalyzer pair tracks this playback.
-    tapped = element
     hooks.tap(element, analyser)
   }
 
   const onPlay = (event: Event): void => {
     const element = event.currentTarget
     if (!(element instanceof HTMLAudioElement) || disposed) return
+    observed = element
     context ??= new AudioContext()
     // A media source permanently reroutes its element, so attach only once
     // the context actually runs — attaching against a suspended context
@@ -90,8 +109,8 @@ export function installLipSync(hooks: LipSyncHooks): LipSyncDriver {
   const onStop = (event: Event): void => {
     const element = event.currentTarget
     if (!(element instanceof HTMLAudioElement)) return
-    if (tapped === element) {
-      tapped = undefined
+    if (observed === element) {
+      observed = undefined
       hooks.untap()
     }
   }
@@ -110,8 +129,8 @@ export function installLipSync(hooks: LipSyncHooks): LipSyncDriver {
   return {
     dispose: () => {
       disposed = true
-      if (tapped !== undefined) {
-        tapped = undefined
+      if (observed !== undefined) {
+        observed = undefined
         hooks.untap()
       }
       if (window.Audio === tracked) window.Audio = native
