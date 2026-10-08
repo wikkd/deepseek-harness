@@ -511,13 +511,14 @@ export class Session {
   }
 
   /**
-   * Restore a detached session by adopting an independently owned or deeply frozen seed.
+   * Restore a detached session by adopting an independently owned or shared
+   * frozen seed (frozen at the envelope and its immediate object values).
    * Runtime-required event fields, event envelopes, sequence continuity, surface
    * transitions, and header fields are validated without copying or freezing events.
    * Embedded Assistant streams remain opaque until a stream consumer or storage
    * verifier reads them.
    * @param id - restored session identity.
-   * @param seed - independently owned or deeply frozen events.
+   * @param seed - independently owned or shared-frozen events.
    * @param header - independently owned storage metadata.
    * @param inheritedEventCount - exact fork-inherited prefix length decoded from storage.
    * @param eventState - aliasing state carried from the operation that produced the seed.
@@ -640,7 +641,7 @@ export class Session {
    * See the [Agent Note](../../../../.agents/notes/implemented/architecture/2026-09-09-deprecate-synchronous-session-event-reads.md).
    * @param fromSeq - non-negative inclusive sequence number; defaults to the log start.
    * @param toSeqExclusive - non-negative exclusive sequence number; defaults to the current end.
-   * @returns a frozen array of the selected deeply frozen events.
+   * @returns a frozen array of the selected frozen events.
    */
   snapshotEvents(
     fromSeq: SessionLogOffset = SessionLogOffset(0),
@@ -1004,7 +1005,8 @@ export class SessionStore extends Service {
    * @param id - the session id; omitted, the store mints `session-<n>`.
    * @param options - seed events and/or creation metadata for the header. With
    *   `eventState`, every seed event is either independently owned or any
-   *   shared value is deeply frozen; {@link Session.fromRestore} validates and
+   *   shared value is frozen at the envelope and its immediate object values;
+   *   {@link Session.fromRestore} validates and
    *   adopts those values without copying or freezing them.
    * @returns the constructed session, NOT yet in the store.
    * @throws if a session with `id` already exists, metadata is not a plain

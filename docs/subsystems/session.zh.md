@@ -1007,7 +1007,8 @@ create(id?: SessionId, options?: CreateSessionOptions): Session
  * @param id - the session id; omitted, the store mints `session-<n>`.
  * @param options - seed events and/or creation metadata for the header. With
  *   `eventState`, every seed event is either independently owned or any
- *   shared value is deeply frozen; {@link Session.fromRestore} validates and
+ *   shared value is frozen at the envelope and its immediate object values;
+ *   {@link Session.fromRestore} validates and
  *   adopts those values without copying or freezing them.
  * @returns the constructed session, NOT yet in the store.
  * @throws if a session with `id` already exists, metadata is not a plain

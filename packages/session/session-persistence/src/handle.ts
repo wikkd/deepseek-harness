@@ -22,8 +22,9 @@ export interface SessionHandleReadOptions {
 /** One persistence event slice returned by {@link SessionHandle.read}. */
 export interface SessionHandleReadResult {
   /**
-   * Whether event values are exclusively owned or shared only after deep
-   * freezing. Slicing preserves the producer's state even when no events remain.
+   * Whether event values are exclusively owned or shared only after freezing
+   * the array, each envelope, and each envelope's immediate object values.
+   * Slicing preserves the producer's state even when no events remain.
    */
   readonly eventState: SessionSeedEventState
   /** Event values in a caller-owned outer array. */

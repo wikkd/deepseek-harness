@@ -177,31 +177,23 @@ interface PreparedStoredLog extends StoredLogBase {
 /** A validated logical log, either durable current state or prepared historical state. */
 type StoredLog = CurrentStoredLog | PreparedStoredLog
 
-/** Deep-freeze acyclic stored JSON; its arrays contain only indexed JSON values. */
-function freezeStoredEvent(event: SessionEvent): void {
-  const pending: object[] = [event]
-  while (pending.length > 0) {
-    // The non-empty check proves an object remains to visit.
-    // oxlint-disable-next-line typescript/no-non-null-assertion
-    const current = pending.pop()!
-    Object.freeze(current)
-    if (Array.isArray(current)) {
-      for (let index = 0; index < current.length; index += 1) {
-        const child: unknown = current[index]
-        if (child !== null && typeof child === 'object') pending.push(child)
-      }
-    } else {
-      for (const key in current) {
-        const child = (current as Record<string, unknown>)[key]
-        if (child !== null && typeof child === 'object') pending.push(child)
-      }
-    }
-  }
-}
-
-/** Establish immutable sharing for one decoded event graph and report that state. */
+/**
+ * Freeze the decoded event array, each event envelope, and each envelope's
+ * immediate object values (`data`, `sourceEventSeqs`, `surfaceOp`). Content
+ * below those levels is shared read-only by convention: the persistence seam
+ * pins exactly this depth (`Object.isFrozen(event) && Object.isFrozen(event.data)`),
+ * and `Session.fromRestore` adopts the values without a further freeze pass.
+ */
 function freezeStoredEvents(events: SessionEvent[]): FrozenStoredEvents {
-  for (const event of events) freezeStoredEvent(event)
+  for (const event of events) {
+    Object.freeze(event)
+    const data: unknown = (event as { data?: unknown }).data
+    if (data !== null && typeof data === 'object') Object.freeze(data)
+    const sources: unknown = (event as { sourceEventSeqs?: unknown }).sourceEventSeqs
+    if (sources !== null && typeof sources === 'object') Object.freeze(sources)
+    const surfaceOp: unknown = (event as { surfaceOp?: unknown }).surfaceOp
+    if (surfaceOp !== null && typeof surfaceOp === 'object') Object.freeze(surfaceOp)
+  }
   Object.freeze(events)
   return { eventState: 'shared-frozen', events }
 }
@@ -1141,7 +1133,8 @@ class JsonlSessionPersistence extends SessionPersistence {
     await this.ensureRootEncoding()
     if (isMaterialized) {
       const range = await this.appendLines(header, events)
-      this.extendFrameIndex(header, events, range)
+      // The index is best-effort; its own failures never fail the batch.
+      void this.extendFrameIndex(header, events, range)
     } else {
       await this.materialize(header, inheritedEventCount, events)
       this.tracker.materialized(header.id)

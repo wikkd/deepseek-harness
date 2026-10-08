@@ -90,7 +90,7 @@ async function withPersistence(root: string, run: (persistence: SessionPersisten
   const ctx = new Context()
   try {
     await ctx.plugin(JsonlSessionPersistence, { root, compression: 'zstd' })
-    await run(ctx.sessionPersistence as unknown as SessionPersistence)
+    await run(ctx.sessionPersistence)
   } finally {
     await ctx.fiber.dispose()
   }

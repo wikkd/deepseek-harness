@@ -1,6 +1,6 @@
 /**
  * Phase breakdown for one cold session-log decode: file IO → zstd decode →
- * line/JSON scan → event validation → deep freeze. Run:
+ * line/JSON scan → event validation → seam-depth freeze. Run:
  *
  *   tsx tests/resume-phases.perf.ts <root>
  */
@@ -19,20 +19,14 @@ const median = (values: readonly number[]): number => {
 }
 
 const freezeAll = (events: SessionEvent[]): void => {
-  const pending: object[] = []
-  for (const event of events) pending.push(event)
-  while (pending.length > 0) {
-    const current = pending.pop()!
-    Object.freeze(current)
-    if (Array.isArray(current)) {
-      for (const child of current) if (child !== null && typeof child === 'object') pending.push(child)
-    } else {
-      for (const key in current) {
-        const child = (current as Record<string, unknown>)[key]
-        if (child !== null && typeof child === 'object') pending.push(child)
-      }
-    }
+  // Mirrors the shipped seam-depth freeze: the array, each envelope, and each
+  // envelope's immediate object values. Content below stays unfrozen.
+  for (const event of events) {
+    Object.freeze(event)
+    const data: unknown = event.data
+    if (data !== null && typeof data === 'object') Object.freeze(data)
   }
+  Object.freeze(events)
 }
 
 const root = process.argv[2]

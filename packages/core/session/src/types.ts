@@ -160,8 +160,10 @@ export interface CreateSessionOptions {
 }
 
 /**
- * Aliasing state of an adoptable Session seed. `shared-frozen` permits deeply
- * frozen aliases plus independently owned unfrozen values in the same seed.
+ * Aliasing state of an adoptable Session seed. `shared-frozen` permits shared
+ * aliases frozen at the envelope and its immediate object values (plus
+ * independently owned unfrozen values in the same seed); content below that
+ * level is read-only by convention rather than individually frozen.
  */
 export type SessionSeedEventState = 'detached' | 'shared-frozen'
 
@@ -170,7 +172,7 @@ export type SessionSeedEventState = 'detached' | 'shared-frozen'
  * without another copy or freeze pass.
  */
 export interface RestoredSessionOptions {
-  /** Events that are independently owned or already deeply frozen. */
+  /** Events that are independently owned or already frozen at this depth. */
   readonly seed: SessionEvent[]
   /** Independently owned storage metadata to validate and freeze in place. */
   readonly meta: SessionHeader
