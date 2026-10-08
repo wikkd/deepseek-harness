@@ -44,9 +44,11 @@ import {
 } from './format.ts'
 import {
   compressZstdFrame, createZstdFrameDecoder, decompressZstdFrame, decompressZstdPrefix, scanZstdFrames,
+  type ZstdFrameRange,
 } from './zstd.ts'
 import { ensureDurableDirectoryWin32, publishNewFileWin32 } from './win32.ts'
 import { verifyCurrentGenerationInWorker } from './migration-verifier.ts'
+import { decodeZstdFramesInWorker, type ZstdDecodePayload } from './zstd-decode-isolate.ts'
 import { prepareCatalogFacts } from './catalog-migration.ts'
 import {
   JsonlGenerationSourceChangedError,
@@ -1223,100 +1225,134 @@ class JsonlSessionPersistence extends SessionPersistence {
     frameIndex?: FrameIndexEntry[]
   }> {
     signal?.throwIfAborted()
-    const { frames, tornStart } = scanZstdFrames(buffer)
-    signal?.throwIfAborted()
-    if (frames.length === 0) throw new Error('empty or header-less Zstandard session log')
-
-    const decoder = createZstdFrameDecoder()
-    let yieldDeadline = performance.now() + ZSTD_DECODE_YIELD_INTERVAL_MS
+    // Prefer an isolated decode: native decompression is a long CPU task and
+    // belongs off the main thread. A task refusal answers for the artifact;
+    // any isolate failure falls back to the local decode below.
+    let isolated: ZstdDecodePayload | undefined
+    let refusal: Error | undefined
     try {
-      const decodedFrames = decoder.decode(buffer, frames)
-      signal?.throwIfAborted()
-      const headerFrame = decodedFrames.next()
-      signal?.throwIfAborted()
-      /* v8 ignore next -- a non-empty structural frame list makes the decoder yield its first frame or throw. */
-      if (headerFrame.done) throw new Error('empty or header-less Zstandard session log')
-      assertZstdHeaderFrame(headerFrame.value)
-      const scanner = new SessionLogScanner(headerFrame.value)
+      const outcome = await decodeZstdFramesInWorker(buffer, signal)
+      if (outcome.kind === 'decoded') {
+        isolated = outcome.payload
+      } else if (outcome.kind === 'refused') {
+        refusal = outcome.error
+      }
+    } catch {
+      /* v8 ignore next -- isolate spawn/queue failures are environmental; the fallback re-decodes locally. */
+      if (signal?.aborted) signal.throwIfAborted()
+    }
+    if (refusal !== undefined) {
+      if (signal?.aborted) signal.throwIfAborted()
+      throw refusal
+    }
 
-      // Frame-offset accounting: frame 0 is the header; each event frame's
-      // logical span is the scanner's event-count delta across its write.
-      const headerRange = frames[0]
-      if (headerRange === undefined) throw new Error('empty or header-less Zstandard session log')
-      const frameIndex: FrameIndexEntry[] = [{
-        start: headerRange.start,
-        end: headerRange.end,
-        firstSeq: 0,
-        events: 0,
-      }]
-      let seenEvents = 0
-      for (let framePosition = 1; framePosition < frames.length; framePosition += 1) {
-        const plaintext = decodedFrames.next()
-        signal?.throwIfAborted()
-        /* v8 ignore next -- the frame list drives the generator; it yields once per frame or throws. */
-        if (plaintext.done) throw new Error('corrupt Zstandard session log: frame list changed during decode')
-        scanner.write(plaintext.value)
-        const checkpoint = scanner.checkpoint()
-        const range = frames[framePosition]
-        if (range === undefined) throw new Error('corrupt Zstandard session log: frame list changed during decode')
-        frameIndex.push({
-          start: range.start,
-          end: range.end,
-          firstSeq: seenEvents,
-          events: checkpoint.eventCount - seenEvents,
-        })
-        seenEvents = checkpoint.eventCount
-        if (framePosition < frames.length - 1 && performance.now() >= yieldDeadline) {
-          await scheduler.yield()
-          signal?.throwIfAborted()
-          yieldDeadline = performance.now() + ZSTD_DECODE_YIELD_INTERVAL_MS
-        }
-      }
-      signal?.throwIfAborted()
-      const complete = scanner.checkpoint()
-      if (complete.committedBytes !== complete.inputBytes) {
-        throw new Error('corrupt Zstandard session log: complete frame contains a torn JSONL record')
-      }
-      if (tornStart === undefined) {
-        const prefix = scanner.finish()
-        return {
-          meta: prefix.meta,
-          inheritedEventCount: prefix.inheritedEventCount,
-          events: prefix.events,
-          tornTruncateTo: undefined,
-          recoveredTail: [],
-          frameIndex,
-        }
-      }
-      // A torn final frame's append never resolved, but complete JSONL records
-      // already flushed into it are real emitted events: recover them, and let
-      // the write path truncate the torn bytes and rewrite them durably.
-      let recoveredPlaintext: Buffer = Buffer.alloc(0)
+    let frames: ZstdFrameRange[]
+    let tornStart: number | undefined
+    let plaintexts: Buffer[]
+    let tornPlaintext: Buffer
+    if (isolated !== undefined) {
+      frames = isolated.frames
+      tornStart = isolated.tornStart
+      plaintexts = isolated.plaintexts.map(view => Buffer.from(view.buffer, view.byteOffset, view.byteLength))
+      tornPlaintext = isolated.tornPlaintext === undefined
+        ? Buffer.alloc(0)
+        : Buffer.from(isolated.tornPlaintext.buffer, isolated.tornPlaintext.byteOffset, isolated.tornPlaintext.byteLength)
+    } else {
+      const scan = scanZstdFrames(buffer)
+      frames = scan.frames
+      tornStart = scan.tornStart
+      if (frames.length === 0) throw new Error('empty or header-less Zstandard session log')
+      plaintexts = []
+      const decoder = createZstdFrameDecoder()
       try {
-        signal?.throwIfAborted()
-        recoveredPlaintext = await decompressZstdPrefix(buffer.subarray(tornStart))
-      } catch {
-        /* v8 ignore next -- decoder failure plus concurrent abort is timing-dependent */
-        if (signal?.aborted) signal.throwIfAborted()
-        // A structurally incomplete final frame may end before Node's decoder
-        // can emit any plaintext; the complete prior frames remain recoverable.
+        for (const frame of decoder.decode(buffer, frames)) {
+          // The shared decoder reuses one output buffer; views must be copied
+          // before the next frame overwrites them.
+          plaintexts.push(Buffer.from(frame))
+        }
+      } finally {
+        decoder.close()
       }
-      signal?.throwIfAborted()
-      scanner.write(recoveredPlaintext)
+      tornPlaintext = Buffer.alloc(0)
+      if (tornStart !== undefined) {
+        try {
+          signal?.throwIfAborted()
+          tornPlaintext = await decompressZstdPrefix(buffer.subarray(tornStart))
+        } catch {
+          /* v8 ignore next -- decoder failure plus concurrent abort is timing-dependent */
+          if (signal?.aborted) signal.throwIfAborted()
+          // A structurally incomplete final frame may end before Node's decoder
+          // can emit any plaintext; the complete prior frames remain recoverable.
+        }
+      }
+    }
+    signal?.throwIfAborted()
+
+    const headerPlaintext = plaintexts[0]
+    if (headerPlaintext === undefined) throw new Error('empty or header-less Zstandard session log')
+    assertZstdHeaderFrame(headerPlaintext)
+    const scanner = new SessionLogScanner(headerPlaintext)
+    let yieldDeadline = performance.now() + ZSTD_DECODE_YIELD_INTERVAL_MS
+
+    // Frame-offset accounting: frame 0 is the header; each event frame's
+    // logical span is the scanner's event-count delta across its write.
+    const headerRange = frames[0]
+    if (headerRange === undefined) throw new Error('empty or header-less Zstandard session log')
+    const frameIndex: FrameIndexEntry[] = [{
+      start: headerRange.start,
+      end: headerRange.end,
+      firstSeq: 0,
+      events: 0,
+    }]
+    let seenEvents = 0
+    for (let framePosition = 1; framePosition < frames.length; framePosition += 1) {
+      const plaintext = plaintexts[framePosition]
+      /* v8 ignore next -- the decoded frame list covers every scanned range. */
+      if (plaintext === undefined) throw new Error('corrupt Zstandard session log: frame list changed during decode')
+      scanner.write(plaintext)
+      const checkpoint = scanner.checkpoint()
+      const range = frames[framePosition]
+      if (range === undefined) throw new Error('corrupt Zstandard session log: frame list changed during decode')
+      frameIndex.push({
+        start: range.start,
+        end: range.end,
+        firstSeq: seenEvents,
+        events: checkpoint.eventCount - seenEvents,
+      })
+      seenEvents = checkpoint.eventCount
+      if (framePosition < frames.length - 1 && performance.now() >= yieldDeadline) {
+        await scheduler.yield()
+        signal?.throwIfAborted()
+        yieldDeadline = performance.now() + ZSTD_DECODE_YIELD_INTERVAL_MS
+      }
+    }
+    signal?.throwIfAborted()
+    const complete = scanner.checkpoint()
+    if (complete.committedBytes !== complete.inputBytes) {
+      throw new Error('corrupt Zstandard session log: complete frame contains a torn JSONL record')
+    }
+    if (tornStart === undefined) {
       const prefix = scanner.finish()
       return {
         meta: prefix.meta,
         inheritedEventCount: prefix.inheritedEventCount,
         events: prefix.events,
-        tornTruncateTo: tornStart,
-        recoveredTail: prefix.events.slice(complete.eventCount),
+        tornTruncateTo: undefined,
+        recoveredTail: [],
+        frameIndex,
       }
-    } catch (error) {
-      /* v8 ignore next -- decoder failure plus concurrent abort is timing-dependent */
-      if (signal?.aborted) signal.throwIfAborted()
-      throw error
-    } finally {
-      decoder.close()
+    }
+    // A torn final frame's append never resolved, but complete JSONL records
+    // already flushed into it are real emitted events: recover them, and let
+    // the write path truncate the torn bytes and rewrite them durably.
+    scanner.write(tornPlaintext)
+    const prefix = scanner.finish()
+    return {
+      meta: prefix.meta,
+      inheritedEventCount: prefix.inheritedEventCount,
+      events: prefix.events,
+      tornTruncateTo: tornStart,
+      recoveredTail: prefix.events.slice(complete.eventCount),
     }
   }
 

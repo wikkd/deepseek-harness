@@ -55,7 +55,7 @@ describe('migration verifier Worker lifecycle', () => {
       path: '/stage', compression: 'none', expectedId: 'session', expectedEventCount: 2,
       expectedPrefix,
     })
-    instance.emit('message', { ok: true, result })
+    instance.emit('message', { ok: true, payload: result })
 
     await expect(verification).resolves.toEqual(result)
     expect(instance.terminate).toHaveBeenCalledOnce()
@@ -100,7 +100,7 @@ describe('migration verifier Worker lifecycle', () => {
     const verification = verifyCurrentGenerationInWorker('/stage', 'none', 'session', 0)
     const instance = worker()
     instance.terminate.mockRejectedValueOnce('terminate failed')
-    instance.emit('message', { ok: true, result })
+    instance.emit('message', { ok: true, payload: result })
 
     await expect(verification).rejects.toThrow('terminate failed')
   })
@@ -109,7 +109,7 @@ describe('migration verifier Worker lifecycle', () => {
     const verification = verifyCurrentGenerationInWorker('/stage', 'none', 'session', 0)
     const instance = worker()
     instance.terminate.mockRejectedValueOnce(new Error('terminate failed'))
-    instance.emit('message', { ok: true, result })
+    instance.emit('message', { ok: true, payload: result })
 
     await expect(verification).rejects.toThrow('terminate failed')
   })
@@ -117,7 +117,7 @@ describe('migration verifier Worker lifecycle', () => {
   it('ignores terminal signals after a result settles', async () => {
     const verification = verifyCurrentGenerationInWorker('/stage', 'none', 'session', 0)
     const instance = worker()
-    instance.emit('message', { ok: true, result })
+    instance.emit('message', { ok: true, payload: result })
     instance.emit('error', new Error('late error'))
     instance.emit('exit', 1)
     instance.emit('message', null)
@@ -132,12 +132,12 @@ describe('migration verifier Worker lifecycle', () => {
     const third = verifyCurrentGenerationInWorker('/third', 'none', 'session', 0)
     expect(state.workers).toHaveLength(2)
 
-    worker(0).emit('message', { ok: true, result })
+    worker(0).emit('message', { ok: true, payload: result })
     await first
     await vi.waitFor(() => { expect(state.workers).toHaveLength(3) })
 
-    worker(1).emit('message', { ok: true, result })
-    worker(2).emit('message', { ok: true, result })
+    worker(1).emit('message', { ok: true, payload: result })
+    worker(2).emit('message', { ok: true, payload: result })
     await expect(Promise.all([second, third])).resolves.toEqual([result, result])
   })
 
@@ -156,19 +156,19 @@ describe('migration verifier Worker lifecycle', () => {
       },
     } as unknown as Promise<number>)
 
-    worker(0).emit('message', { ok: true, result })
+    worker(0).emit('message', { ok: true, payload: result })
     await first
     await vi.waitFor(() => { expect(state.workers).toHaveLength(3) })
     expect(worker(2).options.workerData).toMatchObject({ path: '/third' })
 
-    worker(1).emit('message', { ok: true, result })
+    worker(1).emit('message', { ok: true, payload: result })
     await second
     await vi.waitFor(() => { expect(state.workers).toHaveLength(4) })
     expect(worker(3).options.workerData).toMatchObject({ path: '/fourth' })
     if (fourth === undefined) throw new Error('fourth verification was not scheduled')
 
-    worker(2).emit('message', { ok: true, result })
-    worker(3).emit('message', { ok: true, result })
+    worker(2).emit('message', { ok: true, payload: result })
+    worker(3).emit('message', { ok: true, payload: result })
     await expect(Promise.all([third, fourth])).resolves.toEqual([result, result])
   })
 
@@ -185,8 +185,8 @@ describe('migration verifier Worker lifecycle', () => {
     await expect(queued).rejects.toBe(reason)
     expect(state.workers).toHaveLength(2)
 
-    worker(0).emit('message', { ok: true, result })
-    worker(1).emit('message', { ok: true, result })
+    worker(0).emit('message', { ok: true, payload: result })
+    worker(1).emit('message', { ok: true, payload: result })
     await expect(Promise.all([first, second])).resolves.toEqual([result, result])
     expect(state.workers).toHaveLength(2)
   })

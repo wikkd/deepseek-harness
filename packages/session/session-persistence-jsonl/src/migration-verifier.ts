@@ -5,18 +5,6 @@ import type { WorkerOptions } from 'node:worker_threads'
 import type { JsonlCompression } from './format.ts'
 import type { JsonlExpectedPrefix, JsonlVerifiedGeneration } from './generation.ts'
 
-interface VerificationRequest {
-  readonly path: string
-  readonly compression: JsonlCompression
-  readonly expectedId: string
-  readonly expectedEventCount: number
-  readonly expectedPrefix?: JsonlExpectedPrefix
-}
-
-type VerificationResponse =
-  | { readonly ok: true; readonly result: JsonlVerifiedGeneration }
-  | { readonly ok: false; readonly message: string; readonly stack?: string }
-
 /** Process-wide memory bound for full-generation verification isolates. */
 const MAX_CONCURRENT_VERIFIERS = 2
 
@@ -70,7 +58,8 @@ class VerificationScheduler {
 
 const verificationScheduler = new VerificationScheduler()
 
-function workerSpawn(request: VerificationRequest): { readonly entry: string | URL; readonly options: WorkerOptions } {
+/** Spawn one isolated task worker; development runs bootstrap TSX inline, builds load `worker.cjs`. */
+export function workerSpawn(request: object): { readonly entry: string | URL; readonly options: WorkerOptions } {
   /* v8 ignore next 3 -- built-worker coverage owns the bundled path. */
   if (!import.meta.url.endsWith('.ts')) {
     return {
@@ -96,6 +85,104 @@ function workerSpawn(request: VerificationRequest): { readonly entry: string | U
 }
 
 /**
+ * Outcome of one isolated task. A reported failure answers the request
+ * itself (the task ran and refused its input); an unreported failure means
+ * the isolate never delivered a trustworthy answer (spawn, crash, invalid
+ * message, abort) and callers may fall back to local work.
+ */
+export type IsolatedTaskOutcome<T> =
+  | { readonly ok: true; readonly payload: T }
+  | { readonly ok: false; readonly reported: true; readonly error: Error }
+  | { readonly ok: false; readonly reported: false; readonly error: Error }
+
+interface IsolatedTaskEnvelope {
+  readonly ok: boolean
+  readonly payload?: unknown
+  readonly message?: unknown
+  readonly stack?: unknown
+}
+
+async function runIsolatedTaskWorker<T>(
+  request: object,
+  signal?: AbortSignal,
+): Promise<IsolatedTaskOutcome<T>> {
+  signal?.throwIfAborted()
+  const { entry, options } = workerSpawn(request)
+  const worker = new Worker(entry, options)
+  return new Promise((resolve) => {
+    let settled = false
+    const cleanup = (): void => {
+      signal?.removeEventListener('abort', abort)
+    }
+    const finish = (outcome: IsolatedTaskOutcome<T>): void => {
+      /* v8 ignore next -- a late error/exit races only after another terminal callback settled. */
+      if (settled) return
+      settled = true
+      cleanup()
+      void worker.terminate().then(
+        () => { resolve(outcome) },
+        (termination: unknown) => {
+          if (outcome.ok) {
+            resolve({
+              ok: false,
+              reported: false,
+              error: termination instanceof Error ? termination : new Error(String(termination)),
+            })
+            return
+          }
+          resolve({
+            ok: false,
+            reported: false,
+            error: new AggregateError([outcome.error, termination], 'migration verifier termination failed'),
+          })
+        },
+      )
+    }
+    worker.once('message', (value: unknown) => {
+      if (settled) return
+      if (typeof value !== 'object' || value === null || typeof (value as { ok?: unknown }).ok !== 'boolean') {
+        finish({ ok: false, reported: false, error: new Error('isolated task returned an invalid response') })
+        return
+      }
+      const envelope = value as IsolatedTaskEnvelope
+      if (!envelope.ok) {
+        const error = new Error(typeof envelope.message === 'string' ? envelope.message : 'isolated task reported a failure')
+        if (typeof envelope.stack === 'string') error.stack = envelope.stack
+        finish({ ok: false, reported: true, error })
+        return
+      }
+      finish({ ok: true, payload: envelope.payload as T })
+    })
+    worker.once('error', (error: Error) => {
+      finish({ ok: false, reported: false, error })
+    })
+    worker.once('exit', (code) => {
+      if (!settled) {
+        finish({ ok: false, reported: false, error: new Error(`isolated task exited before reporting a result (code ${code})`) })
+      }
+    })
+    const abort = (): void => {
+      finish({ ok: false, reported: false, error: verifierAbortError(signal) })
+    }
+    signal?.addEventListener('abort', abort, { once: true })
+  })
+}
+
+/**
+ * Run one request/response task in a fresh Worker Thread and report whether
+ * its failure was the task's own answer or an isolate failure.
+ * @param request - structured-cloneable task request carried in `workerData`.
+ * @param signal - optional cancellation for scheduler wait and Worker execution.
+ * @returns the answered payload, or a failure tagged with whether the task itself reported it.
+ */
+export function runIsolatedTask<T>(
+  request: object,
+  signal?: AbortSignal,
+): Promise<IsolatedTaskOutcome<T>> {
+  return verificationScheduler.run(() => runIsolatedTaskWorker<T>(request, signal), signal)
+}
+
+/**
  * Verify one current generation in a fresh Worker Thread.
  * @param path - staged or competing current-generation path.
  * @param compression - configured physical encoding.
@@ -113,76 +200,18 @@ export function verifyCurrentGenerationInWorker(
   expectedPrefix?: JsonlExpectedPrefix,
   signal?: AbortSignal,
 ): Promise<JsonlVerifiedGeneration> {
-  return verificationScheduler.run(() => runVerificationWorker(
-    path,
-    compression,
-    expectedId,
-    expectedEventCount,
-    expectedPrefix,
-    signal,
-  ), signal)
-}
-
-function runVerificationWorker(
-  path: string,
-  compression: JsonlCompression,
-  expectedId: string,
-  expectedEventCount: number,
-  expectedPrefix?: JsonlExpectedPrefix,
-  signal?: AbortSignal,
-): Promise<JsonlVerifiedGeneration> {
-  signal?.throwIfAborted()
-  const request: VerificationRequest = {
-    path, compression, expectedId, expectedEventCount,
-    ...(expectedPrefix === undefined ? {} : { expectedPrefix }),
-  }
-  const { entry, options } = workerSpawn(request)
-  const worker = new Worker(entry, options)
-  return new Promise((resolve, reject) => {
-    let settled = false
-    const cleanup = (): void => {
-      signal?.removeEventListener('abort', abort)
+  return verificationScheduler.run(async () => {
+    const outcome = await runIsolatedTaskWorker<unknown>({
+      path, compression, expectedId, expectedEventCount,
+      ...(expectedPrefix === undefined ? {} : { expectedPrefix }),
+    }, signal)
+    if (!outcome.ok) throw outcome.error
+    if (typeof outcome.payload !== 'object' || outcome.payload === null
+      || !('digest' in outcome.payload)) {
+      throw new Error('migration verifier returned an invalid response')
     }
-    const fail = (error: Error): void => {
-      /* v8 ignore next -- a late error/exit races only after another terminal callback settled. */
-      if (settled) return
-      settled = true
-      cleanup()
-      void worker.terminate().then(
-        () => { reject(error) },
-        (cleanup: unknown) => {
-          reject(new AggregateError([error, cleanup], 'migration verifier termination failed'))
-        },
-      )
-    }
-    worker.once('message', (value: unknown) => {
-      /* v8 ignore next -- a duplicate message races only after another terminal callback settled. */
-      if (settled) return
-      if (typeof value !== 'object' || value === null || typeof (value as { ok?: unknown }).ok !== 'boolean') {
-        fail(new Error('migration verifier returned an invalid response'))
-        return
-      }
-      const response = value as VerificationResponse
-      if (!response.ok) {
-        const error = new Error(response.message)
-        if (response.stack !== undefined) error.stack = response.stack
-        fail(error)
-        return
-      }
-      settled = true
-      cleanup()
-      void worker.terminate().then(
-        () => { resolve(response.result) },
-        (error: unknown) => { reject(error instanceof Error ? error : new Error(String(error))) },
-      )
-    })
-    worker.once('error', fail)
-    worker.once('exit', (code) => {
-      if (!settled) fail(new Error(`migration verifier exited before reporting a result (code ${code})`))
-    })
-    const abort = (): void => { fail(verifierAbortError(signal)) }
-    signal?.addEventListener('abort', abort, { once: true })
-  })
+    return outcome.payload as unknown as JsonlVerifiedGeneration
+  }, signal)
 }
 
 function verifierAbortError(signal?: AbortSignal): Error {
