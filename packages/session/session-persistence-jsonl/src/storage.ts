@@ -35,6 +35,12 @@ import type { SessionWriteLease } from './lease.ts'
 /** Maximum intentional wait before a routed live session batch starts writing. */
 export const LIVE_WRITE_BATCH_MAX_DELAY_MS = 200
 
+/** A read result that also reports the log's total validated event length. */
+export interface SessionHandleReadWindow extends SessionHandleReadResult {
+  /** Total validated events in the stored log, independent of the returned slice. */
+  readonly totalEvents: number
+}
+
 /** The file-storage primitives the handle drives on its owning service. */
 export interface JsonlHandleStorage {
   /** Append encoded lines; `isMaterialized` selects create-vs-extend publication. */
@@ -52,6 +58,19 @@ export interface JsonlHandleStorage {
   resolveCurrentLog(id: SessionId, signal?: AbortSignal): Promise<string | undefined>
   /** Read and validate the stored log at `path`, including its established event aliasing state. */
   readStoredLog(path: string, expectedId: SessionId, signal?: AbortSignal): Promise<SessionHandleReadResult>
+  /**
+   * Read one event window, optionally without decoding the whole artifact.
+   * @returns the validated frozen window plus the log's total event length, or
+   *   `undefined` when no indexed fast path applies and the caller must fall
+   *   back to {@link readStoredLog}.
+   */
+  readStoredLogWindow?(
+    path: string,
+    expectedId: SessionId,
+    offset: number,
+    length: number,
+    signal?: AbortSignal,
+  ): Promise<SessionHandleReadWindow | undefined>
   /** Whether the id is still a created-but-unmaterialized session here. */
   hasPendingSession(id: SessionId): boolean
   /** Acquire the session's cross-process write lock in its artifact directory. */
@@ -168,6 +187,18 @@ export class JsonlSessionHandle implements SessionHandle {
     length: number,
     signal?: AbortSignal,
   ): Promise<SessionHandleReadResult> {
+    // An indexed window read serves a slice without decoding the whole log;
+    // it still reports the log length so the monotonic view stays exact.
+    if (this.storage.readStoredLogWindow !== undefined) {
+      const window = await this.storage.readStoredLogWindow(path, this.id, offset, length, signal)
+      if (window !== undefined) {
+        if (window.totalEvents < this.observedLength) {
+          throw new Error(`session "${this.id}": stored log shrank below a previously observed prefix (${window.totalEvents} < ${this.observedLength})`)
+        }
+        this.observedLength = Math.max(this.observedLength, window.totalEvents)
+        return { eventState: window.eventState, events: window.events }
+      }
+    }
     const source = await this.storage.readStoredLog(path, this.id, signal)
     if (source.events.length < this.observedLength) {
       throw new Error(`session "${this.id}": stored log shrank below a previously observed prefix (${source.events.length} < ${this.observedLength})`)

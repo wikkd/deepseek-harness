@@ -138,7 +138,7 @@ export function toHeaderLine(
  * @param line - the shape-checked first line of a log (see the `isHeaderLine` guard).
  * @returns logical Session metadata paired with the exact inherited prefix length.
  */
-function fromHeaderLine(line: HeaderLine): SessionStorageMetadata {
+export function fromHeaderLine(line: HeaderLine): SessionStorageMetadata {
   return {
     meta: {
       version: SESSION_FORMAT_VERSION,
@@ -156,7 +156,7 @@ function fromHeaderLine(line: HeaderLine): SessionStorageMetadata {
 }
 
 /** Type guard: a parsed first line is a well-formed session header. */
-function isHeaderLine(value: unknown): value is HeaderLine {
+export function isHeaderLine(value: unknown): value is HeaderLine {
   return (
     typeof value === 'object' && value !== null && !Array.isArray(value)
     && HEADER_REQUIRED_KEYS.every(key => Object.hasOwn(value, key))

@@ -96,7 +96,7 @@ export interface SessionFormatCodec {
   /** Decode one physical header into body-independent logical metadata. */
   decodeHeader(value: unknown): SessionFormatHeader
   /** Create one row-at-a-time decoder with an explicit failure policy. */
-  createDecoder(headerValue: unknown, recovery: SessionFormatRecovery): SessionFormatArtifactDecoder
+  createDecoder(headerValue: unknown, recovery: SessionFormatRecovery, startSeq?: number): SessionFormatArtifactDecoder
 }
 
 /** Stateful physical-row decoder used by streaming persistence restores. */
@@ -204,6 +204,14 @@ export interface SessionFormatRestoreOptions {
    * released current-format validation only after migration; current input receives only codec validation.
    */
   readonly validation: 'transformed' | 'current'
+  /**
+   * Logical seq the decoder's first row must carry; defaults to 0. A suffix
+   * decode of a contiguous log passes its window's first seq, so the built-in
+   * seq-continuity check stays exact without re-reading earlier rows. Rows
+   * decoded through a nonzero start are accepted at face value: the caller
+   * owns proving that the skipped prefix was validated.
+   */
+  readonly startSeq?: number
 }
 
 /** Build-static physical dispatch and adjacent migration catalog. */

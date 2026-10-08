@@ -126,7 +126,7 @@ export function createSessionFormatCatalog(options: SessionFormatCatalogOptions)
     restoreOptions: SessionFormatRestoreOptions,
   ): SessionFormatRestore {
     const { storedVersion, codec } = artifactCodec(headerValue)
-    const decoder = codec.createDecoder(headerValue, restoreOptions.recovery)
+    const decoder = codec.createDecoder(headerValue, restoreOptions.recovery, restoreOptions.startSeq)
     const sourceCut = decoder.headerInheritedEventCount
     if (storedVersion === chain.currentVersion) {
       return new CurrentSessionFormatRestore(

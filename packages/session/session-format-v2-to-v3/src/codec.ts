@@ -17,8 +17,8 @@ export const releasedV3SessionFormatCodec = Object.freeze({
   decodeHeader(value: unknown) {
     return { ...releasedV2SessionFormatCodec.decodeHeader(v2PhysicalHeader(value)), version: 3 }
   },
-  createDecoder(value, recovery) {
-    const decoder = releasedV2SessionFormatCodec.createDecoder(v2PhysicalHeader(value), recovery)
+  createDecoder(value, recovery, startSeq?) {
+    const decoder = releasedV2SessionFormatCodec.createDecoder(v2PhysicalHeader(value), recovery, startSeq)
     let issue: SessionFormatError | undefined
     let acceptedInheritedCut: number | undefined
     return {

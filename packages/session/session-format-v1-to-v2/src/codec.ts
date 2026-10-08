@@ -27,8 +27,8 @@ export const releasedV2SessionFormatCodec = Object.freeze({
   decodeHeader(value: unknown) {
     return decodePhysicalHeader(value)
   },
-  createDecoder(headerValue: unknown, recovery: SessionFormatRecovery) {
-    return createDecoder(headerValue, recovery)
+  createDecoder(headerValue: unknown, recovery: SessionFormatRecovery, startSeq?: number) {
+    return createDecoder(headerValue, recovery, startSeq)
   },
   encodeHeader(header: SessionFormatHeader, inheritedEventCount: number) {
     return encodeHeader(header, inheritedEventCount)
@@ -75,10 +75,14 @@ function decodePhysicalHeader(value: unknown): SessionFormatHeader {
 function createDecoder(
   headerValue: unknown,
   recovery: SessionFormatRecovery,
+  startSeq = 0,
 ): SessionFormatArtifactDecoder {
+  if (!Number.isSafeInteger(startSeq) || startSeq < 0) {
+    throw new TypeError(`released v2 decoder startSeq must be a non-negative safe integer, got ${String(startSeq)}`)
+  }
   const header = decodePhysicalHeader(headerValue)
   let rowIndex = 0
-  let eventCount = 0
+  let eventCount = startSeq
   let inheritedEventCount: number | undefined
   let issue: SessionFormatError | undefined
   return {

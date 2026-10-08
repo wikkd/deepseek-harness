@@ -31,12 +31,14 @@ import {
   type SessionPersistenceSnapshot, type SessionPersistenceStatOptions,
   type SessionPersistenceRevision as PersistenceRevision,
 } from '@deepseek-ai/dsh-session-persistence'
-import { JsonlBackendTracker, JsonlSessionHandle, type StorageHandleState } from './storage.ts'
+import { JsonlBackendTracker, JsonlSessionHandle, type SessionHandleReadWindow, type StorageHandleState } from './storage.ts'
 import { SessionWriteLease } from './lease.ts'
-import { SESSION_FORMAT_VERSION, SessionId as makeSessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
+import { SESSION_FORMAT_VERSION, KNOWN_SESSION_EVENT_TYPES, SessionId as makeSessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId, SessionHeader, SessionLogOffset as SessionLogOffsetType } from '@deepseek-ai/dsh-session'
+import { assertV4RowAdmission } from '@deepseek-ai/dsh-session-format-v3-to-v4'
 import {
-  assertNoRetiredHeaderFields, encodeSegment, eventLines, generationLogFilename, generationLogPath, logPath, logSuffix,
+  assertNoRetiredHeaderFields, encodeSegment, eventLines, fromHeaderLine, generationLogFilename,
+  generationLogPath, isHeaderLine, logPath, logSuffix,
   parseGenerationLogFilename, projectDir, scanLog, sessionDir, SessionLogScanner, toHeaderLine,
   type JsonlCompression,
 } from './format.ts'
@@ -72,6 +74,47 @@ const DEFAULT_COMPRESSION: JsonlCompression = 'zstd'
  * remains an indivisible synchronous decode.
  */
 const ZSTD_DECODE_YIELD_INTERVAL_MS = 500
+
+/**
+ * Internal handoff-reuse policy, not deployment configuration: frame indexes
+ * are tiny (tens of bytes per durable batch), so the bound only caps worst-case
+ * directory-wide churn, well above any realistic in-flight session count.
+ */
+const FRAME_INDEX_MAX_ENTRIES = 32
+/**
+ * Internal work heuristic, not deployment configuration: when a window read's
+ * covering frames span more than this fraction of the log, a full decode is
+ * comparable work and additionally repopulates the whole-log memo, so the
+ * window fast path stands down.
+ */
+const FRAME_INDEX_WINDOW_MAX_FRACTION = 0.25
+
+/** One durable frame's compressed byte range and logical event span. */
+interface FrameIndexEntry {
+  /** Inclusive compressed byte offset of the frame in its artifact. */
+  readonly start: number
+  /** Exclusive compressed byte end of the frame. */
+  readonly end: number
+  /** Logical seq of the frame's first event; a header frame carries zero events. */
+  readonly firstSeq: number
+  /** Number of events encoded in the frame. */
+  readonly events: number
+}
+
+/**
+ * Frame-offset index for one current-generation artifact: the map from logical
+ * event windows to compressed byte ranges that lets a suffix read decode only
+ * the frames covering its window. Rebuilt from any full decode; invalidated
+ * implicitly by the revision guard on every use.
+ */
+interface LogFrameIndex {
+  readonly path: string
+  readonly revision: PersistenceRevision
+  /** Total events across indexed frames; the validated contiguous log length. */
+  readonly totalEvents: number
+  /** Frame 0 is the header frame; event frames follow in append order. */
+  readonly frames: readonly FrameIndexEntry[]
+}
 
 /** Assert that the independently decodable first frame contains only the header record. */
 function assertZstdHeaderFrame(plaintext: Buffer): void {
@@ -264,6 +307,14 @@ class JsonlSessionPersistence extends SessionPersistence {
    * revision guard.
    */
   private readonly coldLogMemo = new Map<SessionId, StoredLog>()
+  /**
+   * Bounded LRU of frame-offset indexes keyed by session id and guarded by the
+   * same stat-derived revision as {@link coldLogMemo}, so a suffix window read
+   * decodes only the frames covering its window. Every index is rebuilt from
+   * any full decode; a foreign or local write misses through the revision
+   * guard and falls back to the full read that rebuilds it.
+   */
+  private readonly frameIndexes = new Map<SessionId, LogFrameIndex>()
   /** One joinable decode/migration operation per selected historical Session file revision. */
   private readonly migrationPreparations = new Map<SessionId, MigrationPreparation>()
 
@@ -756,6 +807,167 @@ class JsonlSessionPersistence extends SessionPersistence {
     return this.decodeStoredLog(path, expectedId, bytes, fileRevision(identity), signal)
   }
 
+  /**
+   * Read one event window without decoding the whole artifact when a warm
+   * memo or a frame index already spans the log. The window result is derived
+   * from the same per-row decoding and validation as a full read, so a
+   * returned window is byte-for-byte the slice a full decode would produce;
+   * any doubt (absent index, revision drift, torn tail, seeded log) returns
+   * `undefined` and the caller falls back to the full read that also rebuilds
+   * what the fast path lacked.
+   * @param path - the current-generation artifact to read.
+   * @param expectedId - the session identity the artifact must carry.
+   * @param offset - first logical seq to include.
+   * @param length - maximum events to return.
+   * @param signal - optional cancellation.
+   * @returns the frozen window and the log's total event length, or `undefined` when no fast path applies.
+   */
+  async readStoredLogWindow(
+    path: string,
+    expectedId: SessionId,
+    offset: number,
+    length: number,
+    signal?: AbortSignal,
+  ): Promise<SessionHandleReadWindow | undefined> {
+    if (this.compression !== 'zstd') return undefined
+    signal?.throwIfAborted()
+    let probe: JsonlPhysicalIdentity
+    try {
+      probe = await stat(path, { bigint: true })
+    } catch (error: unknown) {
+      if (isENOENT(error)) return undefined
+      throw error
+    }
+    const revision = fileRevision(probe)
+    signal?.throwIfAborted()
+
+    // A warm whole-log memo serves any window for free.
+    const memoized = this.coldLogMemo.get(expectedId)
+    if (memoized?.status === 'current' && memoized.revision === revision) {
+      this.coldLogMemo.delete(expectedId)
+      this.coldLogMemo.set(expectedId, memoized)
+      return {
+        eventState: 'shared-frozen',
+        events: memoized.events.slice(offset, offset + length),
+        totalEvents: memoized.events.length,
+      }
+    }
+
+    const index = this.frameIndexes.get(expectedId)
+    if (index === undefined || index.path !== path || index.revision !== revision) return undefined
+    const windowStart = offset
+    const windowEnd = Math.min(offset + length, index.totalEvents)
+    if (windowStart >= windowEnd) {
+      const empty: SessionEvent[] = []
+      Object.freeze(empty)
+      return { eventState: 'shared-frozen', events: empty, totalEvents: index.totalEvents }
+    }
+
+    // Select the event frames covering the window; stand down when the
+    // coverage is a large fraction of the log, where a full decode is
+    // comparable work and additionally repopulates the whole-log memo.
+    let firstPosition = -1
+    let lastPosition = -1
+    let coveredEvents = 0
+    for (let position = 1; position < index.frames.length; position += 1) {
+      const frame = index.frames[position]
+      if (frame === undefined) return undefined
+      if (frame.events === 0) continue
+      if (frame.firstSeq + frame.events <= windowStart) continue
+      if (frame.firstSeq >= windowEnd) break
+      if (firstPosition === -1) firstPosition = position
+      lastPosition = position
+      coveredEvents += frame.events
+    }
+    if (firstPosition === -1) return undefined
+    if (coveredEvents > index.totalEvents * FRAME_INDEX_WINDOW_MAX_FRACTION) return undefined
+    const firstFrame = index.frames[firstPosition]
+    if (firstFrame === undefined) return undefined
+    const selectedFirstSeq = firstFrame.firstSeq
+
+    try {
+      const { bytes, identity } = await readStableJsonlFile(path, signal)
+      if (fileRevision(identity) !== index.revision) return undefined
+      const { frames, tornStart } = scanZstdFrames(bytes)
+      if (frames.length < index.frames.length) return undefined
+      const lastIndexed = index.frames.at(-1)
+      if (lastIndexed === undefined) return undefined
+      for (let position = 0; position < index.frames.length; position += 1) {
+        const scanned = frames[position]
+        const indexed = index.frames[position]
+        if (scanned === undefined || indexed === undefined) return undefined
+        if (scanned.start !== indexed.start || scanned.end !== indexed.end) return undefined
+      }
+      if (tornStart !== undefined && tornStart < lastIndexed.end) return undefined
+
+      const headerRange = index.frames[0]
+      if (headerRange === undefined) return undefined
+      const ranges = [headerRange, ...index.frames.slice(firstPosition, lastPosition + 1)]
+      const decoder = createZstdFrameDecoder()
+      let windowEvents: SessionEvent[]
+      let meta: SessionHeader
+      try {
+        const decoded = decoder.decode(bytes, ranges)
+        const headerFrame = decoded.next()
+        signal?.throwIfAborted()
+        if (headerFrame.done) return undefined
+        assertZstdHeaderFrame(headerFrame.value)
+        const headerValue: unknown = JSON.parse(headerFrame.value.subarray(0, -1).toString('utf8'))
+        if (!isHeaderLine(headerValue)) return undefined
+        // A seeded log's inherited-cut marker lives near the head, outside the
+        // window; the restore refuses it at finish, so such logs take the full path.
+        if (headerValue.isSeeded) return undefined
+        const restore = sessionFormatCatalog.createRestore(headerValue, {
+          recovery: 'strict',
+          validation: 'transformed',
+          startSeq: selectedFirstSeq,
+        })
+        // Per-row admission and decoding mirror SessionLogScanner.consumeEventLine
+        // in strict recovery. The artifact-wide relationship and lifecycle
+        // validation is intentionally not repeated: the frame index exists only
+        // because a full read validated these exact rows already, and the
+        // fallback full read owns every refusal's classification.
+        for (let position = firstPosition; position <= lastPosition; position += 1) {
+          const plaintext = decoded.next()
+          signal?.throwIfAborted()
+          if (plaintext.done) return undefined
+          const chunk = plaintext.value
+          let lineStart = 0
+          for (
+            let newline = chunk.indexOf(0x0A);
+            newline !== -1;
+            newline = chunk.indexOf(0x0A, lineStart)
+          ) {
+            const row: unknown = JSON.parse(chunk.subarray(lineStart, newline).toString('utf8'))
+            assertV4RowAdmission(row, KNOWN_SESSION_EVENT_TYPES)
+            restore.decodeRow(row)
+            lineStart = newline + 1
+          }
+          if (lineStart < chunk.length) throw new Error('frame window decode ended mid-record')
+        }
+        windowEvents = restore.finish().events as unknown as SessionEvent[]
+        meta = fromHeaderLine(headerValue).meta
+      } finally {
+        decoder.close()
+      }
+
+      // Seq continuity is enforced by the restore's own contiguous check from
+      // `startSeq`; a gap throws and takes the fallback path below.
+      if (windowEvents.length !== coveredEvents) return undefined
+      assertStoredId(expectedId, meta)
+      const slice = windowEvents.slice(windowStart - selectedFirstSeq, windowEnd - selectedFirstSeq)
+      validateStoredEvents(meta, slice, this.locate(meta))
+      const { events } = freezeStoredEvents(slice)
+      return { eventState: 'shared-frozen', events, totalEvents: index.totalEvents }
+    } catch (error: unknown) {
+      // The fallback full read owns error classification; only cancellation
+      // propagates from the fast path itself.
+      if (signal?.aborted) signal.throwIfAborted()
+      if (error instanceof SessionFormatUnsupportedError) throw error
+      return undefined
+    }
+  }
+
   /** Decode and memoize one already-stable current physical snapshot. */
   private async decodeStoredLog(
     path: string,
@@ -770,6 +982,7 @@ class JsonlSessionPersistence extends SessionPersistence {
       events: SessionEvent[]
       tornTruncateTo: number | undefined
       recoveredTail: SessionEvent[]
+      frameIndex?: FrameIndexEntry[]
     }
     try {
       if (this.compression === 'zstd') {
@@ -813,7 +1026,72 @@ class JsonlSessionPersistence extends SessionPersistence {
       revision,
     }
     this.memoizeStoredLog(expectedId, stored)
+    this.rememberFrameIndex(expectedId, path, revision, parsed.frameIndex, events.length)
     return stored
+  }
+
+  /**
+   * Retain one freshly built frame-index entry, most recently used first.
+   * @param id - the session the artifact belongs to.
+   * @param path - the artifact path the index was decoded from.
+   * @param revision - the stat-derived revision the decode proved stable.
+   * @param frames - the per-frame index, or `undefined` when the physical shape supports none.
+   * @param totalEvents - the decoded contiguous event length the index must span.
+   */
+  private rememberFrameIndex(
+    id: SessionId,
+    path: string,
+    revision: PersistenceRevision,
+    frames: FrameIndexEntry[] | undefined,
+    totalEvents: number,
+  ): void {
+    this.frameIndexes.delete(id)
+    if (frames === undefined) return
+    this.frameIndexes.set(id, { path, revision, totalEvents, frames })
+    for (const oldest of this.frameIndexes.keys()) {
+      if (this.frameIndexes.size <= FRAME_INDEX_MAX_ENTRIES) break
+      this.frameIndexes.delete(oldest)
+    }
+  }
+
+  /**
+   * Extend one session's frame index with a just-durable append batch. The
+   * extension is best-effort bookkeeping: an index that does not exactly span
+   * the log the batch continues is dropped, and a revision probe failure
+   * drops it too — the next read falls back to the full decode that rebuilds.
+   * @param header - the session's stored header naming the artifact.
+   * @param events - the durably appended batch.
+   * @param range - the batch's compressed byte range, or `undefined` for the frameless encoding.
+   */
+  private async extendFrameIndex(
+    header: SessionHeader,
+    events: readonly SessionEvent[],
+    range: { start: number; end: number } | undefined,
+  ): Promise<void> {
+    if (range === undefined) return
+    const index = this.frameIndexes.get(header.id)
+    const firstEvent = events[0]
+    if (index === undefined || firstEvent === undefined || index.totalEvents !== firstEvent.seq) {
+      this.frameIndexes.delete(header.id)
+      return
+    }
+    try {
+      const revision = fileRevision(await stat(logPath(this.root, header.cwd, header.id, this.compression), { bigint: true }))
+      this.frameIndexes.delete(header.id)
+      this.frameIndexes.set(header.id, {
+        path: index.path,
+        revision,
+        totalEvents: index.totalEvents + events.length,
+        frames: [...index.frames, { start: range.start, end: range.end, firstSeq: firstEvent.seq, events: events.length }],
+      })
+    } catch {
+      this.frameIndexes.delete(header.id)
+    }
+  }
+
+  /** Drop one session's frame index after a physical rewrite invalidates its ranges. */
+  private dropFrameIndex(id: SessionId): void {
+    this.frameIndexes.delete(id)
   }
 
   /** Insert one parsed log into the bounded handoff cache. */
@@ -862,7 +1140,8 @@ class JsonlSessionPersistence extends SessionPersistence {
     this.coldLogMemo.delete(header.id)
     await this.ensureRootEncoding()
     if (isMaterialized) {
-      await this.appendLines(header, events)
+      const range = await this.appendLines(header, events)
+      this.extendFrameIndex(header, events, range)
     } else {
       await this.materialize(header, inheritedEventCount, events)
       this.tracker.materialized(header.id)
@@ -876,6 +1155,7 @@ class JsonlSessionPersistence extends SessionPersistence {
    */
   async persistHeader(header: SessionHeader, inheritedEventCount: SessionLogOffsetType): Promise<void> {
     this.coldLogMemo.delete(header.id)
+    this.dropFrameIndex(header.id)
     await this.ensureRootEncoding()
     await this.materialize(header, inheritedEventCount, [])
     this.tracker.materialized(header.id)
@@ -888,6 +1168,7 @@ class JsonlSessionPersistence extends SessionPersistence {
    */
   async truncateTornTail(header: SessionHeader, truncateTo: number): Promise<void> {
     this.coldLogMemo.delete(header.id)
+    this.dropFrameIndex(header.id)
     await this.repair(header, truncateTo)
     this.ctx.logger.warn(`${this.name}: session "${header.id}" recovered from a torn tail; incomplete tail bytes were discarded`)
   }
@@ -945,6 +1226,8 @@ class JsonlSessionPersistence extends SessionPersistence {
     events: SessionEvent[]
     tornTruncateTo: number | undefined
     recoveredTail: SessionEvent[]
+    /** Frame-offset index over the complete frames; absent when the log has a torn tail. */
+    frameIndex?: FrameIndexEntry[]
   }> {
     signal?.throwIfAborted()
     const { frames, tornStart } = scanZstdFrames(buffer)
@@ -963,12 +1246,34 @@ class JsonlSessionPersistence extends SessionPersistence {
       assertZstdHeaderFrame(headerFrame.value)
       const scanner = new SessionLogScanner(headerFrame.value)
 
-      let remainingFrames = frames.length - 1
-      for (const plaintext of decodedFrames) {
+      // Frame-offset accounting: frame 0 is the header; each event frame's
+      // logical span is the scanner's event-count delta across its write.
+      const headerRange = frames[0]
+      if (headerRange === undefined) throw new Error('empty or header-less Zstandard session log')
+      const frameIndex: FrameIndexEntry[] = [{
+        start: headerRange.start,
+        end: headerRange.end,
+        firstSeq: 0,
+        events: 0,
+      }]
+      let seenEvents = 0
+      for (let framePosition = 1; framePosition < frames.length; framePosition += 1) {
+        const plaintext = decodedFrames.next()
         signal?.throwIfAborted()
-        scanner.write(plaintext)
-        remainingFrames -= 1
-        if (remainingFrames > 0 && performance.now() >= yieldDeadline) {
+        /* v8 ignore next -- the frame list drives the generator; it yields once per frame or throws. */
+        if (plaintext.done) throw new Error('corrupt Zstandard session log: frame list changed during decode')
+        scanner.write(plaintext.value)
+        const checkpoint = scanner.checkpoint()
+        const range = frames[framePosition]
+        if (range === undefined) throw new Error('corrupt Zstandard session log: frame list changed during decode')
+        frameIndex.push({
+          start: range.start,
+          end: range.end,
+          firstSeq: seenEvents,
+          events: checkpoint.eventCount - seenEvents,
+        })
+        seenEvents = checkpoint.eventCount
+        if (framePosition < frames.length - 1 && performance.now() >= yieldDeadline) {
           await scheduler.yield()
           signal?.throwIfAborted()
           yieldDeadline = performance.now() + ZSTD_DECODE_YIELD_INTERVAL_MS
@@ -987,6 +1292,7 @@ class JsonlSessionPersistence extends SessionPersistence {
           events: prefix.events,
           tornTruncateTo: undefined,
           recoveredTail: [],
+          frameIndex,
         }
       }
       // A torn final frame's append never resolved, but complete JSONL records
@@ -1320,8 +1626,10 @@ class JsonlSessionPersistence extends SessionPersistence {
    * Append and fsync event lines. On a partial write or sync failure, restore the
    * previous size before rethrowing because the unchanged cursor will retry the
    * batch; leaving partial bytes would create duplicate sequence numbers.
+   * @returns the compressed byte range the batch occupies, or `undefined` for
+   *   the frameless encoding.
    */
-  private async appendLines(meta: SessionHeader, events: readonly SessionEvent[]): Promise<void> {
+  private async appendLines(meta: SessionHeader, events: readonly SessionEvent[]): Promise<{ start: number; end: number } | undefined> {
     const content = await this.encodeEventBatch(events)
     const path = logPath(this.root, meta.cwd, meta.id, this.compression)
     const handle = await open(path, 'a')
@@ -1337,6 +1645,8 @@ class JsonlSessionPersistence extends SessionPersistence {
       try {
         await handle.writeFile(content)
         await handle.sync()
+        if (typeof content === 'string') return undefined
+        return { start: before, end: before + content.length }
       } catch (error) {
         try {
           await closeAppendHandle()
