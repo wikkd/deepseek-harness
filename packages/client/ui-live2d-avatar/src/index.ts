@@ -8,19 +8,31 @@
 import type { Context, Volatile } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
-import { PET_VISIBLE_DEFAULT } from './pet-settings.ts'
+import {
+  PET_ANCHOR_DEFAULT, PET_HEIGHT_DEFAULT, PET_HEIGHT_MAX, PET_HEIGHT_MIN,
+  PET_OPACITY_DEFAULT, PET_OPACITY_MIN, PET_VISIBLE_DEFAULT,
+} from './pet-settings.ts'
 
 export { PET_SETTINGS_NAMESPACE, PET_VISIBLE_DEFAULT, PET_VISIBLE_FIELD, type PetSettings } from './pet-settings.ts'
 
-/** Runtime preference projected to the browser. */
+/** Runtime preferences projected to the browser. */
 export interface Config {
   /** Whether the pet floats in the client. */
   visible: Volatile<boolean>
+  /** Displayed pet height in pixels. */
+  height: Volatile<number>
+  /** How see-through the pet renders, 0..1 where 1 is fully opaque. */
+  opacity: Volatile<number>
+  /** Which lower corner the pet docks to. */
+  anchor: Volatile<'left' | 'right'>
 }
 
-/** Live desktop-pet preference. */
+/** Live desktop-pet preferences. */
 export const Config = z.object({
   visible: z.boolean().default(PET_VISIBLE_DEFAULT).volatile(),
+  height: z.number().min(PET_HEIGHT_MIN).max(PET_HEIGHT_MAX).default(PET_HEIGHT_DEFAULT).volatile(),
+  opacity: z.number().min(PET_OPACITY_MIN).max(1).default(PET_OPACITY_DEFAULT).volatile(),
+  anchor: z.union([z.literal('left'), z.literal('right')]).default(PET_ANCHOR_DEFAULT).volatile(),
 })
 
 /**

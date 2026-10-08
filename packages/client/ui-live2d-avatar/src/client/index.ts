@@ -1,11 +1,12 @@
 /**
- * 小圆 Live2D desktop pet, browser half. A draggable Madoka Kaname mascot floats
- * at the client's lower-right corner: idle motions and expressions cycle on a
+ * 小圆 Live2D desktop pet, browser half. A draggable Madoka Kaname mascot
+ * floats at the client's lower corner: idle motions and expressions cycle on a
  * timer, clicking the character plays another one, dragging repositions the
- * pet (persisted in localStorage), and a General-settings switch toggles the
- * whole pet through the plugin's own settings namespace. While the TTS plugin
- * plays a spoken reply, the playing element is tapped into the motion
- * manager's lip-sync path, which drives the model's mouth.
+ * pet (persisted in localStorage), and a General-settings row owns the whole
+ * appearance — visibility, size, opacity, and dock corner — through the
+ * plugin's own settings namespace. While the TTS plugin plays a spoken reply,
+ * the playing element is tapped into the motion manager's lip-sync path, which
+ * drives the model's mouth.
  *
  * The Cubism core loads from the web app's static directory before the Live2D
  * runtime evaluates, and the model files are served from the same directory.
@@ -32,7 +33,9 @@ import type { Cubism4InternalModel } from 'pixi-live2d-display-lipsyncpatch/cubi
 import { installLipSync } from './lip-sync.ts'
 import { en, zh, type PetSettingsKey } from './locales.ts'
 import { PetRow, type PetRowInjected } from './PetRow.tsx'
-import { PET_SETTINGS_NAMESPACE, PET_VISIBLE_DEFAULT, PET_VISIBLE_FIELD, type PetSettings } from '../pet-settings.ts'
+import {
+  PET_SETTINGS_DEFAULTS, PET_SETTINGS_NAMESPACE,
+} from '../pet-settings.ts'
 
 /** Services required by the browser half (settings transport + row surfaces). */
 export const inject: string[] = ['slots', 'locale', 'remote', 'configForms']
@@ -49,8 +52,8 @@ const PET_ID = 'dsh-live2d-avatar'
 /** Cubism runtime and model assets served by the web app's static directory. */
 const CORE_URL = '/live2d/live2dcubismcore.js'
 const MODEL_URL = '/live2d/madoka_200100/model.model3.json'
-/** Displayed pet height in pixels; the mascot hugs the viewport bottom edge. */
-const PET_HEIGHT = 300
+/** Host width per unit of pet height; the two scale together. */
+const HOST_ASPECT = 260 / 300
 /** Milliseconds between ambient motion changes while the pet idles. */
 const AMBIENT_INTERVAL_MS = 9000
 /** Pointer travel below this distance counts as a click, not a drag. */
@@ -60,6 +63,15 @@ const MOTION_GROUP = 'Motion'
 /** Settings-row copy namespace owned by this plugin. */
 const SETTINGS_NS = 'settings.live2dAvatar'
 const STORAGE_KEY = 'dsh-live2d-avatar-position'
+
+/** The pet-facing face of the model this plugin drives. */
+interface PetModel {
+  scale: { set(value: number): void }
+  x: number
+  y: number
+  width: number
+  internalModel: { height: number }
+}
 
 interface StoredPosition {
   readonly x: number
@@ -78,8 +90,15 @@ function loadCubismCore(): Promise<void> {
   })
 }
 
+/** Dock coordinates for one anchor: hugged to the corner, 16px inset. */
+function placeAtAnchor(host: HTMLDivElement, settings: PetSettings): void {
+  const width = Math.round(settings.height * HOST_ASPECT)
+  host.style.left = `${settings.anchor === 'left' ? 16 : Math.max(16, window.innerWidth - width - 16)}px`
+  host.style.top = `${Math.max(0, window.innerHeight - settings.height - 40)}px`
+}
+
 /** Restore the last dragged position, clamped into the current viewport. */
-function restorePosition(host: HTMLDivElement): void {
+function restorePosition(host: HTMLDivElement, settings: PetSettings): void {
   let stored: StoredPosition | undefined
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
@@ -87,18 +106,16 @@ function restorePosition(host: HTMLDivElement): void {
   } catch {
     stored = undefined
   }
-  const x = stored === undefined
-    ? Math.max(16, window.innerWidth - 220)
-    : Math.min(Math.max(0, stored.x), Math.max(0, window.innerWidth - host.offsetWidth))
-  const y = stored === undefined
-    ? Math.max(0, window.innerHeight - PET_HEIGHT - 40)
-    : Math.min(Math.max(0, stored.y), Math.max(0, window.innerHeight - 80))
-  host.style.left = `${x}px`
-  host.style.top = `${y}px`
+  if (stored === undefined) {
+    placeAtAnchor(host, settings)
+    return
+  }
+  host.style.left = `${Math.min(Math.max(0, stored.x), Math.max(0, window.innerWidth - host.offsetWidth))}px`
+  host.style.top = `${Math.min(Math.max(0, stored.y), Math.max(0, window.innerHeight - 80))}px`
 }
 
 /**
- * Mount the desktop pet, its settings row, and its visible preference.
+ * Mount the desktop pet, its settings row, and its appearance preferences.
  * @param ctx - Client root context.
  */
 export function apply(ctx: ClientContext): void {
@@ -106,12 +123,12 @@ export function apply(ctx: ClientContext): void {
 
   ctx.effect(() => ctx.locale.register(SETTINGS_NS, { zh, en }), 'ui-live2d-avatar: settings row dictionaries')
 
-  // The visible preference: adopted from the settings form, mirrored to the
-  // settings row through this snapshot, and applied to the mounted host.
-  let visible = form.getSnapshot().value?.visible ?? PET_VISIBLE_DEFAULT
+  // The appearance preferences: adopted from the settings form, mirrored to
+  // the settings row through this snapshot, and applied to the mounted host.
+  let settings: PetSettings = PET_SETTINGS_DEFAULTS
   const rowListeners = new Set<() => void>()
-  const visibleSnapshot: ObservableSnapshot<boolean> = {
-    getSnapshot: () => visible,
+  const settingsSnapshot: ObservableSnapshot<PetSettings> = {
+    getSnapshot: () => settings,
     subscribe: (listener) => {
       rowListeners.add(listener)
       return () => { rowListeners.delete(listener) }
@@ -120,14 +137,17 @@ export function apply(ctx: ClientContext): void {
   // Filled in by the mount effect once the host exists; preference flips that
   // arrive before (or after) the pet is mounted are absorbed there.
   let applyVisibility: (() => void) | undefined
+  let applyAppearance: ((next: PetSettings, previous: PetSettings) => void) | undefined
 
   ctx.effect(() => form.subscribe(() => {
-    const next = form.getSnapshot().value?.visible ?? PET_VISIBLE_DEFAULT
-    if (next === visible) return
-    visible = next
+    const next = form.getSnapshot().value
+    if (next === undefined) return
+    const previous = settings
+    settings = next
     applyVisibility?.()
+    applyAppearance?.(next, previous)
     for (const listener of rowListeners) listener()
-  }), 'ui-live2d-avatar: visible preference adoption')
+  }), 'ui-live2d-avatar: preference adoption')
 
   ctx.slots.inject('settings.general.item', () => ctx.slots.register({
     name: 'settings.general.item',
@@ -135,8 +155,8 @@ export function apply(ctx: ClientContext): void {
     order: 30,
     locale: SETTINGS_NS,
     inject: (): PetRowInjected => ({
-      hooks: { visible: visibleSnapshot },
-      setVisible: (next) => { void form.set(PET_VISIBLE_FIELD, next) },
+      hooks: { settings: settingsSnapshot },
+      setField: (field, value) => { void form.set(field, value) },
     }),
   }, PetRow))
 
@@ -145,25 +165,48 @@ export function apply(ctx: ClientContext): void {
     const host = document.createElement('div')
     host.id = PET_ID
     host.style.cssText = [
-      'position: fixed', 'z-index: 900', 'width: 260px', `height: ${PET_HEIGHT}px`,
-      'pointer-events: auto', 'cursor: grab', 'user-select: none', 'touch-action: none',
+      'position: fixed', 'z-index: 900', 'pointer-events: auto', 'cursor: grab',
+      'user-select: none', 'touch-action: none',
       'filter: drop-shadow(0 6px 16px rgb(0 0 0 / 18%))',
     ].join(';')
     document.body.appendChild(host)
-    restorePosition(host)
+    restorePosition(host, settings)
 
     let disposed = false
     let teardown: (() => void) | undefined
-    let app: { ticker: { start(): void; stop(): void } } | undefined
+    let app: { ticker: { start(): void; stop(): void }; screen: { width: number; height: number } } | undefined
+    let model: PetModel | undefined
 
     const applyPetVisibility = (): void => {
-      host.style.display = visible ? '' : 'none'
+      host.style.display = settings.visible ? '' : 'none'
       if (app === undefined) return
-      if (visible) app.ticker.start()
+      if (settings.visible) app.ticker.start()
       else app.ticker.stop()
     }
     applyVisibility = applyPetVisibility
     applyPetVisibility()
+
+    // Size, opacity, and dock side react live: the host resizes (the canvas
+    // follows through resizeTo), the model rescales and re-hugs the bottom,
+    // and an anchor flip re-docks the pet to its corner. Dragged positions
+    // keep applying afterwards — a flip just moves the pet once.
+    const resizeHost = (value: PetSettings): void => {
+      host.style.width = `${Math.round(value.height * HOST_ASPECT)}px`
+      host.style.height = `${value.height}px`
+      host.style.opacity = `${value.opacity}`
+    }
+    const rescaleModel = (value: PetSettings): void => {
+      if (model === undefined || app === undefined) return
+      model.scale.set(value.height / model.internalModel.height)
+      model.x = (app.screen.width - model.width) / 2
+      model.y = app.screen.height - model.height
+    }
+    applyAppearance = (next: PetSettings, previous: PetSettings): void => {
+      resizeHost(next)
+      if (next.anchor !== previous.anchor) placeAtAnchor(host, next)
+      rescaleModel(next)
+    }
+    resizeHost(settings)
 
     const boot = (async () => {
       await loadCubismCore()
@@ -187,21 +230,22 @@ export function apply(ctx: ClientContext): void {
         // freezes on its initial frame (every arm variant visible, no motions).
         // The application's own ticker (not Ticker.shared) keeps model updates
         // under the same visibility gate as rendering.
-        const model = await Live2DModel.from(MODEL_URL, {
+        const pet = await Live2DModel.from(MODEL_URL, {
           autoHitTest: false, autoFocus: false, ticker: petApp.ticker,
         })
         if (disposed) {
-          model.destroy()
+          pet.destroy()
           petApp.destroy(true)
           return
         }
         app = petApp
+        model = pet as unknown as PetModel
         applyPetVisibility()
-        model.scale.set(PET_HEIGHT / model.internalModel.height)
+        model.scale.set(settings.height / model.internalModel.height)
         // Hug the pet to the container's bottom edge so it "stands" on it.
         model.x = (petApp.screen.width - model.width) / 2
         model.y = petApp.screen.height - model.height
-        petApp.stage.addChild(model)
+        petApp.stage.addChild(pet)
 
         // Feed the playing audio into the model's own lip-sync path: while
         // `currentAudio` is set, the motion manager reads `currentAnalyzer`
@@ -209,7 +253,7 @@ export function apply(ctx: ClientContext): void {
         // (`internalModel.lipSync` defaults to true). The downcast to the
         // Cubism4 face is safe here — every cubism4 model builds one — and is
         // what exposes the typed `currentAudio`/`currentAnalyzer` pair.
-        const internalModel = model.internalModel as Cubism4InternalModel
+        const internalModel = pet.internalModel as Cubism4InternalModel
         let speaking = false
         const speech = installLipSync({
           tap: (element, analyser) => {
@@ -227,14 +271,14 @@ export function apply(ctx: ClientContext): void {
         const random = (bound: number): number => Math.floor(Math.random() * bound)
         const play = (): void => {
           // Hidden pets run no ticker; skip the blind motion/expression churn.
-          if (!visible || speaking) return
-          void model.motion(MOTION_GROUP, random(9))
-          const expressions = model.internalModel.motionManager?.expressionManager
+          if (!settings.visible || speaking) return
+          void pet.motion(MOTION_GROUP, random(9))
+          const expressions = pet.internalModel.motionManager?.expressionManager
           if (expressions !== undefined && Math.random() < 0.6) {
             expressions.setRandomExpression()
           }
         }
-        void model.motion(MOTION_GROUP, 0)
+        void pet.motion(MOTION_GROUP, 0)
         const ambient = window.setInterval(play, AMBIENT_INTERVAL_MS)
 
         let dragging = false
@@ -287,7 +331,7 @@ export function apply(ctx: ClientContext): void {
           host.removeEventListener('pointerdown', onPointerDown)
           host.removeEventListener('pointermove', onPointerMove)
           host.removeEventListener('pointerup', onPointerUp)
-          model.destroy()
+          pet.destroy()
           petApp.destroy(true, { children: true, texture: true })
         }
       } catch (error) {
@@ -305,6 +349,7 @@ export function apply(ctx: ClientContext): void {
     return () => {
       disposed = true
       applyVisibility = undefined
+      applyAppearance = undefined
       teardown?.()
       host.remove()
     }
