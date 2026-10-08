@@ -135,6 +135,26 @@
   overflow-y: auto;
 }
 
+/* Functional group: its small-caps label plus the member cells. */
+.navGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.navGroup + .navGroup {
+  margin-top: 14px;
+}
+
+/* Group label (shell-owned, from the category table): 12px secondary. */
+.navGroupLabel {
+  padding: 0 12px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+  user-select: none;
+}
+
 /* Nav cell (figma .Setting-nav-cell 501:29962): 164x40, r12, pad
    (12,9,16,9), gap 8; label 14/400 lh22; selected fill #EBEEF2. */
 .navCell {
@@ -230,6 +250,27 @@
   min-height: 0;
   padding: 0 24px 24px;
   overflow-y: auto;
+}
+
+/* One member section inside a category page. Single-member categories render
+   exactly as before (no heading, no rules); multi-member pages stack blocks. */
+.block {
+  min-width: 0;
+}
+
+.blockTitle {
+  padding: 2px 0 12px;
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Hairline between stacked blocks; the first block carries no rule. */
+.blockAfter {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
 }
 
 /* Visually-hidden text seat (close button accessible name from slot content). */

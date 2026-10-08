@@ -20,11 +20,17 @@ import type { createSettingsShellStore } from './shell-store.ts'
 import type { ShortcutCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/client'
 import type { DesktopUpdateView } from '../types.ts'
 
-/** One nav row projected from a settings.section registration's options. */
+/**
+ * One nav row projected from a settings.section registration's options.
+ * `category` is the functional group the shell files the page under
+ * (categories.ts) — the ledger projection always resolves it, while a raw
+ * row source may omit it (grouping then falls back to the id map).
+ */
 export interface SettingsSectionRow {
   id: string
   order: number
   label: string
+  category?: string
 }
 
 /** One ordered onboarding step projected from a slot registration. */

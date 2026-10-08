@@ -15,11 +15,12 @@ import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import {
   ConnectionIndicator, Tooltip, useModalLayer,
-  IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconCloseOutlineRegular, IconDataOutlineMedium,
+  IconAgentPresetOutlineMedium, IconCloseOutlineRegular, IconDataOutlineMedium,
   IconPersonalizationOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ConnectionIndicatorState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsRootComponentProps, SettingsSectionRow } from './shell-contract.ts'
+import { SETTINGS_CATEGORIES, resolveCategory, type SettingsCategory } from './categories.ts'
 import css from './SettingsRoot.module.css'
 import { DesktopUpdateIndicator } from './DesktopUpdateIndicator.tsx'
 
@@ -28,19 +29,43 @@ const RECOVERY_CONFIRMATION_MS = 2_000
 /** Minimum visible time for the connecting pill; shorter attempts read as flicker. */
 const CONNECTING_MIN_VISIBLE_MS = 800
 
-/** Nav glyph by section id; unknown ids fall back to the settings gear. */
+/** Nav glyph by category id; unknown ids fall back to the settings gear. */
 function navIcon(id: string) {
   if (id === 'account') return <IconUserOutlineMedium className={css.navIcon} size={16} />
-  if (id === 'models') return <IconDataOutlineMedium className={css.navIcon} size={16} />
-  if (id === 'agent-presets') return <IconAgentPresetOutlineMedium className={css.navIcon} size={16} />
-  if (id === 'plugins') return <IconPersonalizationOutlineMedium className={css.navIcon} size={16} />
-  if (id === 'archived-sessions') return <IconArchiveOutlineMedium className={css.navIcon} size={16} />
+  if (id === 'agent') return <IconAgentPresetOutlineMedium className={css.navIcon} size={16} />
+  if (id === 'plugins') return <IconDataOutlineMedium className={css.navIcon} size={16} />
+  if (id === 'desktop') return <IconPersonalizationOutlineMedium className={css.navIcon} size={16} />
   return <IconSettingsOutlineMedium className={css.navIcon} size={16} />
+}
+
+/** One nav group: a functional category and its member pages, in registration order. */
+type NavGroup = {
+  category: SettingsCategory
+  members: readonly SettingsSectionRow[]
+}
+
+/**
+ * Project the flat section ledger into ordered nav groups. Empty categories
+ * drop out, so the rail only ever shows groups with at least one page. The
+ * category comes off the row when the ledger projected one, else it resolves
+ * from the id right here (a raw row source may not carry the field).
+ */
+function groupRows(rows: readonly SettingsSectionRow[]): readonly NavGroup[] {
+  return SETTINGS_CATEGORIES
+    .map(category => ({
+      category,
+      members: rows
+        .filter(row => (row.category ?? resolveCategory(row.id)) === category.id)
+        .sort((a, b) => a.order - b.order),
+    }))
+    .filter(group => group.members.length > 0)
 }
 
 type PanelProps = {
   rows: readonly SettingsSectionRow[]
   renderSlot: SettingsRootComponentProps['renderSlot']
+  /** Locale seat for the shell-owned group labels. */
+  t: SettingsRootComponentProps['t']
   activeId: string | undefined
   onSelect: (id: string) => void
   onClose: () => void
@@ -49,12 +74,17 @@ type PanelProps = {
 /**
  * Body-portaled modal layer: full-viewport mask + centered panel. Close paths: the
  * header button, a mask click, and document-level Escape (mounted only while
- * open, so the listener lifetime is the panel's).
+ * open, so the listener lifetime is the panel's). The nav rail reads as
+ * functional groups (账户/通用/…); a group page stacks its member sections
+ * under their own headings — one page per plugin becomes one block per
+ * plugin inside the page that matches what the user wants to change.
  */
-function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelProps) {
+function SettingsPanel({ rows, renderSlot, t, activeId, onSelect, onClose }: PanelProps) {
   // Entries can unmount underneath the requested id, so the render-time
-  // projection falls back to the first row when the id is gone.
-  const active = rows.find(r => r.id === activeId)?.id ?? rows[0]?.id
+  // projection falls back to the first group when the id is gone.
+  const groups = groupRows(rows)
+  const active = groups.some(g => g.category.id === activeId) ? activeId : groups[0]?.category.id
+  const members = groups.find(g => g.category.id === active)?.members ?? []
   const titleId = useId()
 
   const panel = useRef<HTMLDivElement>(null)
@@ -72,19 +102,27 @@ function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelP
           <div className={css.navTitle} id={titleId} tabIndex={-1}
             data-modal-autofocus={active === undefined ? '' : undefined}>{renderSlot('settings.header', {})}</div>
           <div className={css.navList}>
-            {rows.map(row => (
-              <button
-                key={row.id}
-                type="button"
-                className={clsx(css.navCell, row.id === active && css.active)}
-                aria-current={row.id === active ? 'true' : undefined}
-                data-modal-autofocus={row.id === active ? '' : undefined}
-                onClick={() => { onSelect(row.id) }}
-              >
-                {navIcon(row.id)}
-                <span className={css.navLabel}>{row.label}</span>
-              </button>
-            ))}
+            {groups.map(({ category, members }) => {
+              const first = members[0]
+              return (
+              <div key={category.id} className={css.navGroup}>
+                <div className={css.navGroupLabel}>{t(category.labelKey as Parameters<typeof t>[0])}</div>
+                {members.map(row => (
+                  <button
+                    key={row.id}
+                    type="button"
+                    className={clsx(css.navCell, category.id === active && css.active)}
+                    aria-current={category.id === active ? 'true' : undefined}
+                    data-modal-autofocus={category.id === active && row.id === first?.id ? '' : undefined}
+                    onClick={() => { onSelect(category.id) }}
+                  >
+                    {navIcon(category.id)}
+                    <span className={css.navLabel}>{row.label}</span>
+                  </button>
+                ))}
+              </div>
+              )
+            })}
           </div>
         </nav>
         <div className={css.content}>
@@ -96,7 +134,12 @@ function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelP
             </button>
           </div>
           <div className={css.options}>
-            {active !== undefined && renderSlot('settings.section', { close: onClose }, { only: active })}
+            {members.map(row => (
+              <div key={row.id} className={clsx(css.block, members.length > 1 && css.blockSplit, members[0]?.id !== row.id && css.blockAfter)}>
+                {members.length > 1 && <div className={css.blockTitle}>{row.label}</div>}
+                {renderSlot('settings.section', { close: onClose }, { only: row.id })}
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -247,6 +290,7 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
         <SettingsPanel
           rows={rows}
           renderSlot={renderSlot}
+          t={t}
           activeId={activeId}
           onSelect={actions.select}
           onClose={close}
@@ -259,7 +303,13 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
         stepId: onboardingStep.id,
         explicit: requestedOnboarding !== undefined,
         complete: () => { completeOnboardingStep(onboardingStep.id) },
-        openSection,
+        openSection: (id) => {
+          // Onboarding addresses a section by its registration id; the panel
+          // navigates by category, so translate through the live ledger
+          // (a raw row source may omit the projected category — resolve it).
+          const category = rows.find(row => row.id === id)?.category ?? resolveCategory(id)
+          openSection(category)
+        },
       }, { only: onboardingStep.id })}
     </>
   )

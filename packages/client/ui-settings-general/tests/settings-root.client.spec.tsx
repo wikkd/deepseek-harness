@@ -368,7 +368,7 @@ describe('SettingsPanel navigation', () => {
     expect(screen.getByTestId('section-general')).toBeTruthy()
   })
 
-  it('gives every section a nav glyph, distinct for the ids the shell knows', () => {
+  it('gives every section a nav glyph from its functional category', () => {
     mount({
       rows: [
         { id: 'general', order: 0, label: 'General' },
@@ -385,10 +385,14 @@ describe('SettingsPanel navigation', () => {
       .map(name => screen.getByRole('button', { name }).querySelector('svg')?.innerHTML)
 
     expect(glyphs.every(glyph => glyph !== undefined && glyph !== '')).toBe(true)
-    // The four ids the shell names get their own glyph; every other section —
-    // including one this package never heard of — shares the gear.
-    expect(new Set(glyphs.slice(0, 5)).size).toBe(5)
-    expect(glyphs[5]).toBe(glyphs[0])
+    // Icons key off the functional category, not the section id: general and
+    // archived-sessions share the general glyph, the two agent pages share
+    // theirs, and the unknown plugin page falls in with Plugins — the three
+    // categories stay distinct from one another.
+    expect(glyphs[0]).toBe(glyphs[4])
+    expect(glyphs[1]).toBe(glyphs[2])
+    expect(glyphs[3]).toBe(glyphs[5])
+    expect(new Set([glyphs[0], glyphs[1], glyphs[3]]).size).toBe(3)
   })
 
   it('switches the rendered section on nav click', () => {
