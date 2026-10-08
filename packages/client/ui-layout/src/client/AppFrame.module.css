@@ -295,20 +295,26 @@
  * whitelist (composer card, dialogs, bubbles…). Full-page overlay apps hosted
  * here — the usage-stats page, for one — pick up the translucent token but
  * are not whitelisted, so the chat underneath bleeds through unblurred and
- * reads as a z-order bug. Frost the layer itself, behind whatever page is
- * mounted: every resident of this layer paints full-bleed (transient UI
- * portals out), so the frost area always equals the page area. Follows the
- * glass skin's dialog recipe — same variables, and the same
- * `.dsh-glass-frosted-on` master gate — so user glass settings apply as-is.
+ * reads as a z-order bug.
+ *
+ * Frost the page root itself, NOT this layer: the layer always hosts an
+ * inert `display: contents` slot wrapper even when no page is mounted, so
+ * any layer-level "has content" test stays true forever and frosts the
+ * whole app. Opt-in via data-overlay-frost, plus the usage-stats page's
+ * stable root class. The filter rides a ::before (the glass skin's own
+ * dialog recipe) so fixed descendants never re-anchor.
  */
-:global(body.dsh-glass-on) .overlayLayer:not(:empty) {
+:global(body.dsh-glass-on) .overlayLayer :global([data-overlay-frost]),
+:global(body.dsh-glass-on) .overlayLayer :global(.us-shell) {
   isolation: isolate;
 }
 
-:global(body.dsh-glass-on) .overlayLayer:not(:empty)::before {
+:global(body.dsh-glass-on) .overlayLayer :global([data-overlay-frost])::before,
+:global(body.dsh-glass-on) .overlayLayer :global(.us-shell)::before {
   content: "";
   position: absolute;
   inset: 0;
+  border-radius: inherit;
   z-index: -1;
   pointer-events: none;
   -webkit-backdrop-filter: blur(var(--glass-frost-blur, 24px))
@@ -322,7 +328,12 @@
   );
 }
 
-:global(body:not(.dsh-glass-frosted-on)) .overlayLayer:not(:empty)::before {
+:global(body:not(.dsh-glass-frosted-on))
+  .overlayLayer
+  :global([data-overlay-frost])::before,
+:global(body:not(.dsh-glass-frosted-on))
+  .overlayLayer
+  :global(.us-shell)::before {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
