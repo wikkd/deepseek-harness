@@ -32,7 +32,7 @@ export const Config = z.object({
   visible: z.boolean().default(PET_VISIBLE_DEFAULT).volatile(),
   height: z.number().min(PET_HEIGHT_MIN).max(PET_HEIGHT_MAX).default(PET_HEIGHT_DEFAULT).volatile(),
   opacity: z.number().min(PET_OPACITY_MIN).max(1).default(PET_OPACITY_DEFAULT).volatile(),
-  anchor: z.union([z.literal('left'), z.literal('right')]).default(PET_ANCHOR_DEFAULT).volatile(),
+  anchor: z.union(['left', 'right']).default(PET_ANCHOR_DEFAULT).volatile(),
 })
 
 /**

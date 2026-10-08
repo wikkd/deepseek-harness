@@ -35,6 +35,7 @@ import { en, zh, type PetSettingsKey } from './locales.ts'
 import { PetRow, type PetRowInjected } from './PetRow.tsx'
 import {
   PET_SETTINGS_DEFAULTS, PET_SETTINGS_NAMESPACE,
+  type PetSettings,
 } from '../pet-settings.ts'
 
 /** Services required by the browser half (settings transport + row surfaces). */
@@ -70,6 +71,7 @@ interface PetModel {
   x: number
   y: number
   width: number
+  height: number
   internalModel: { height: number }
 }
 
