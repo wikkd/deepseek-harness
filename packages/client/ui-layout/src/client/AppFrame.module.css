@@ -288,3 +288,41 @@
 .overlayLayer > * {
   pointer-events: auto;
 }
+
+/*
+ * Glass-theme compat. The glass skin (dsh-glass-ui-theme) turns the alias
+ * background tokens translucent on body, and frosts only surfaces on its own
+ * whitelist (composer card, dialogs, bubbles…). Full-page overlay apps hosted
+ * here — the usage-stats page, for one — pick up the translucent token but
+ * are not whitelisted, so the chat underneath bleeds through unblurred and
+ * reads as a z-order bug. Frost the layer itself, behind whatever page is
+ * mounted: every resident of this layer paints full-bleed (transient UI
+ * portals out), so the frost area always equals the page area. Follows the
+ * glass skin's dialog recipe — same variables, and the same
+ * `.dsh-glass-frosted-on` master gate — so user glass settings apply as-is.
+ */
+:global(body.dsh-glass-on) .overlayLayer:not(:empty) {
+  isolation: isolate;
+}
+
+:global(body.dsh-glass-on) .overlayLayer:not(:empty)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(var(--glass-frost-blur, 24px))
+    saturate(calc(1 + var(--glass-refraction, 0.4)));
+  backdrop-filter: blur(var(--glass-frost-blur, 24px))
+    saturate(calc(1 + var(--glass-refraction, 0.4)));
+  background: color-mix(
+    in srgb,
+    var(--glass-tint, #ffffff) 10%,
+    transparent
+  );
+}
+
+:global(body:not(.dsh-glass-frosted-on)) .overlayLayer:not(:empty)::before {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
