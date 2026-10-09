@@ -8,11 +8,11 @@ describe('comfy graph builders', () => {
   it('builds the fast graph on the checkpoint loader with tuned sampler values', () => {
     const graph = buildFastGraph('sd_xl_turbo.safetensors', 'a cat', '', 512, 512, 2, 1, 42)
     expect(graph['1']).toEqual({ class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: 'sd_xl_turbo.safetensors' } })
-    expect(graph['5'].inputs).toMatchObject({ seed: 42, steps: 2, cfg: 1, sampler_name: 'euler', scheduler: 'simple', denoise: 1 })
-    expect(graph['2'].inputs).toMatchObject({ text: 'a cat', clip: ['1', 1] })
-    expect(graph['3'].inputs).toMatchObject({ text: '', clip: ['1', 1] })
-    expect(graph['4'].inputs).toEqual({ width: 512, height: 512, batch_size: 1 })
-    expect(graph['7'].class_type).toBe('SaveImage')
+    expect(graph['5']?.inputs).toMatchObject({ seed: 42, steps: 2, cfg: 1, sampler_name: 'euler', scheduler: 'simple', denoise: 1 })
+    expect(graph['2']?.inputs).toMatchObject({ text: 'a cat', clip: ['1', 1] })
+    expect(graph['3']?.inputs).toMatchObject({ text: '', clip: ['1', 1] })
+    expect(graph['4']?.inputs).toEqual({ width: 512, height: 512, batch_size: 1 })
+    expect(graph['7']?.class_type).toBe('SaveImage')
   })
 
   it('builds the fine graph on the GGUF loader trio with the clip type', () => {
@@ -21,10 +21,10 @@ describe('comfy graph builders', () => {
     expect(graph['1']).toEqual({ class_type: 'UnetLoaderGGUF', inputs: { unet_name: 'qwen-image-2.1-Q8_0.gguf' } })
     expect(graph['2']).toEqual({ class_type: 'CLIPLoader', inputs: { clip_name: 'qwen3vl_8b_int8_convrot.safetensors', type: 'qwen_image' } })
     expect(graph['3']).toEqual({ class_type: 'VAELoader', inputs: { vae_name: 'qwen_image_2.1_vae_bf16.safetensors' } })
-    expect(graph['4'].inputs).toMatchObject({ text: '一只猫', clip: ['2', 0] })
-    expect(graph['4n'].inputs).toMatchObject({ text: '模糊', clip: ['2', 0] })
-    expect(graph['6'].inputs).toMatchObject({ seed: 7, steps: 25, cfg: 1, model: ['1', 0], positive: ['4', 0], negative: ['4n', 0] })
-    expect(graph['8'].class_type).toBe('SaveImage')
+    expect(graph['4']?.inputs).toMatchObject({ text: '一只猫', clip: ['2', 0] })
+    expect(graph['4n']?.inputs).toMatchObject({ text: '模糊', clip: ['2', 0] })
+    expect(graph['6']?.inputs).toMatchObject({ seed: 7, steps: 25, cfg: 1, model: ['1', 0], positive: ['4', 0], negative: ['4n', 0] })
+    expect(graph['8']?.class_type).toBe('SaveImage')
   })
 
   it('keeps both graphs ending in the same save contract', () => {
