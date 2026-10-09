@@ -212,10 +212,13 @@ export function apply(ctx: ClientContext): void {
     if (typeof document === 'undefined') return () => {}
     const host = document.createElement('div')
     host.id = PET_ID
+    // No CSS filter on the host: a drop-shadow here puts the WebGL canvas on
+    // its own compositor layer, which this Chromium build never presents —
+    // the model renders (draw calls flow) but stays invisible, and page
+    // screenshot capture times out waiting for the layer.
     host.style.cssText = [
       'position: fixed', 'z-index: 900', 'pointer-events: auto', 'cursor: grab',
       'user-select: none', 'touch-action: none',
-      'filter: drop-shadow(0 6px 16px rgb(0 0 0 / 18%))',
     ].join(';')
     document.body.appendChild(host)
     restorePosition(host, settings)
