@@ -164,11 +164,24 @@ export function createIndexttsSidecar(logger: SidecarLogger, settings: IndexttsS
 
   /**
    * Kill the running child, if any. `retire` (idle unload) keeps the sidecar
-   * spawnable; `dispose` does not.
+   * spawnable; `dispose` does not. On Windows the venv `python.exe` is a
+   * 4 MB launcher whose real interpreter (~7 GB with the model) is a child,
+   * so a plain `kill()` frees nothing — `taskkill /T /F` takes the tree.
    */
   const killChild = (): void => {
     if (idleTimer !== undefined) { clearTimeout(idleTimer); idleTimer = undefined }
-    if (child !== undefined && child.exitCode === null && !child.killed) child.kill()
+    if (child !== undefined && child.exitCode === null && !child.killed) {
+      const pid = child.pid
+      if (process.platform === 'win32' && pid !== undefined) {
+        try {
+          spawn('taskkill', ['/T', '/F', '/PID', String(pid)], { windowsHide: true, stdio: 'ignore' })
+        } catch {
+          child.kill()
+        }
+      } else {
+        child.kill()
+      }
+    }
     child = undefined
   }
 

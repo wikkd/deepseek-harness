@@ -263,7 +263,17 @@ function spawnApi(ctx: Context, cfg: ResolvedConfig): () => void {
   })
   return () => {
     disposeOutput()
-    if (child.exitCode === null && !child.killed) child.kill()
+    if (child.exitCode === null && !child.killed) {
+      // The venv launcher python.exe wraps the real interpreter as a child;
+      // taskkill /T takes the whole tree so the model memory is actually freed.
+      if (process.platform === 'win32' && child.pid !== undefined) {
+        try {
+          spawn('taskkill', ['/T', '/F', '/PID', String(child.pid)], { windowsHide: true, stdio: 'ignore' })
+          return
+        } catch { /* fall through to the plain kill */ }
+      }
+      child.kill()
+    }
   }
 }
 
@@ -294,9 +304,11 @@ async function waitUntilResponsive(ctx: Context, cfg: ResolvedConfig, stopped: {
  * Build the bridge settings for the resolved plugin config.
  * @param cfg resolved settings.
  * @param ensureIndextts lazy-start callback; undefined when IndexTTS is unmanaged.
+ * @param warn the plugin fiber's warning logger for bridge-side events.
  * @returns the bridge server settings.
  */
-function toBridgeConfig(cfg: ResolvedConfig, ensureIndextts?: () => Promise<void>): BridgeConfig {
+function toBridgeConfig(cfg: ResolvedConfig, ensureIndextts: (() => Promise<void>) | undefined,
+  warn: (format: string, ...values: unknown[]) => void): BridgeConfig {
   return {
     host: cfg.host,
     port: cfg.bridgePort,
@@ -308,9 +320,9 @@ function toBridgeConfig(cfg: ResolvedConfig, ensureIndextts?: () => Promise<void
     requestTimeoutMs: cfg.requestTimeoutMs,
     loudnorm: cfg.loudnorm,
     ensureIndextts,
+    log: warn,
   }
 }
-
 /**
  * Plugin entry: spawn api_v2 (when asked to and not already running), host the
  * bridge, and tie both to the profile lifecycle. Registering the api effect
@@ -379,5 +391,5 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     }
   }
 
-  ctx.effect(() => startBridge(ctx, toBridgeConfig(cfg, ensureIndextts)), 'gptsovits-bridge')
+  ctx.effect(() => startBridge(ctx, toBridgeConfig(cfg, ensureIndextts, (format, ...values) => { ctx.logger.warn(format, ...values) })), 'gptsovits-bridge')
 }

@@ -64,6 +64,8 @@ export interface BridgeConfig {
    * managed elsewhere and requests just hit the configured URL.
    */
   ensureIndextts?: (() => Promise<void>) | undefined
+  /** One-line logger for bridge-side events (retry warnings, etc.). */
+  log?: ((format: string, ...values: unknown[]) => void) | undefined
 }
 
 /** OpenAI audio-speech request body; only the fields the bridge consumes. */
@@ -213,7 +215,19 @@ async function handle(cfg: BridgeConfig, req: IncomingMessage, res: ServerRespon
       // pays the 20-40s model load on this request's clock.
       const timeoutMs = cfg.requestTimeoutMs + (cfg.ensureIndextts !== undefined ? 60_000 : 0)
       if (cfg.ensureIndextts !== undefined) await cfg.ensureIndextts()
-      const wav = await indexttsTts(cfg.indexttsUrl, text, profile.indexRefAudioPath, textLang, timeoutMs)
+      let wav: Buffer
+      try {
+        wav = await indexttsTts(cfg.indexttsUrl, text, profile.indexRefAudioPath, textLang, timeoutMs)
+      } catch (error) {
+        // A freshly spawned service can reject its first moments of traffic
+        // (model still settling after binding the port); one retry keeps the
+        // lazy path as reliable as the always-warm one. GPT-SoVITS remains
+        // the per-request fallback when IndexTTS is down for real.
+        if (cfg.ensureIndextts === undefined) throw error
+        cfg.log?.('gptsovits-voice: indextts request failed (%s) — retrying once', error instanceof Error ? error.message : String(error))
+        await cfg.ensureIndextts()
+        wav = await indexttsTts(cfg.indexttsUrl, text, profile.indexRefAudioPath, textLang, timeoutMs)
+      }
       if (wav.length < 64) throw new Error('indextts produced empty audio')
       const mp3 = await ffmpegToMp3(cfg.ffmpegPath, wav, cfg.loudnorm)
       res.writeHead(200, { 'content-type': 'audio/mpeg', 'content-length': mp3.length })
