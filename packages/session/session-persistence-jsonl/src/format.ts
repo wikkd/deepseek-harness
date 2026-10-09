@@ -155,7 +155,11 @@ export function fromHeaderLine(line: HeaderLine): SessionStorageMetadata {
   }
 }
 
-/** Type guard: a parsed first line is a well-formed session header. */
+/**
+ * Type guard: a parsed first line is a well-formed session header.
+ * @param value - the JSON-parsed first line of a session log.
+ * @returns true when the value carries exactly the header key set and valid fields.
+ */
 export function isHeaderLine(value: unknown): value is HeaderLine {
   return (
     typeof value === 'object' && value !== null && !Array.isArray(value)

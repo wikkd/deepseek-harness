@@ -37,12 +37,18 @@ export interface SessionManifestEntryV1 {
   readonly fileCtimeNs: string
 }
 
+/**
+ * One project's list-manifest document (`.dsh-sessions.json`, v1). A
+ * best-effort cache — never authoritative: every consumer revalidates
+ * entries against live stat and falls back to a full directory read.
+ */
 export interface SessionManifestV1 {
   readonly version: 1
   /** Session format version at write time; a mismatch voids the whole document. */
   readonly formatVersion: number
   /** Backend encoding at write time; a mismatch voids the whole document (filenames differ). */
   readonly compression: JsonlCompression
+  /** Session directory basename → its cached generation/header/stat identity. */
   readonly entries: Record<string, SessionManifestEntryV1>
 }
 
@@ -66,12 +72,21 @@ function isManifestV1(value: unknown, formatVersion: number, compression: JsonlC
   })
 }
 
-/** Serialize one bigint stat field as the decimal string the JSON document carries. */
+/**
+ * Serialize one bigint stat field as the decimal string the JSON document carries.
+ * @param value - the stat field (device, inode, size, or timestamp).
+ * @returns the decimal string form recorded in the manifest.
+ */
 export function manifestStatField(value: bigint): string {
   return value.toString(10)
 }
 
-/** Whether one bigint stat field still equals its cached decimal-string form. */
+/**
+ * Whether one bigint stat field still equals its cached decimal-string form.
+ * @param value - the freshly taken stat field.
+ * @param cached - the decimal-string form recorded in the manifest.
+ * @returns true when the field is unchanged since the cache was written.
+ */
 export function manifestStatMatches(value: bigint, cached: string): boolean {
   return value.toString(10) === cached
 }
@@ -98,6 +113,10 @@ export class ProjectManifestCache {
    * cache. Unlike storage reads, errors are swallowed here on purpose: the
    * manifest is not part of the storage contract, and a broken cache must
    * degrade to the uncached path rather than fail list().
+   * @param project - absolute persistence root directory holding the manifest.
+   * @param compression - compression codec the document must declare.
+   * @param formatVersion - log format version the document must declare.
+   * @returns the project's manifest document, empty when none was readable.
    */
   async docOf(
     project: string,
@@ -126,7 +145,12 @@ export class ProjectManifestCache {
     return doc
   }
 
-  /** Record one freshly resolved entry for a Session directory. */
+  /**
+   * Record one freshly resolved entry for a Session directory.
+   * @param project - absolute persistence root directory the manifest belongs to.
+   * @param dirName - Session directory basename inside the project.
+   * @param entry - the resolved manifest entry to publish for that directory.
+   */
   put(project: string, dirName: string, entry: SessionManifestEntryV1): void {
     const cached = this.documents.get(project)
     if (cached === undefined) return
@@ -135,7 +159,11 @@ export class ProjectManifestCache {
     cached.present = true
   }
 
-  /** Forget one Session directory's entry (the directory disappeared). */
+  /**
+   * Forget one Session directory's entry (the directory disappeared).
+   * @param project - absolute persistence root directory the manifest belongs to.
+   * @param dirName - Session directory basename whose entry is dropped.
+   */
   drop(project: string, dirName: string): void {
     const cached = this.documents.get(project)
     if (cached === undefined) return

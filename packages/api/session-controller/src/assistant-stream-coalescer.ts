@@ -126,7 +126,12 @@ export class AssistantStreamCoalescer {
     private readonly windowMs: number,
   ) {}
 
-  /** Offer one raw wire frame; mergeable deltas may wait for the window, everything else flushes through. */
+  /**
+   * Offer one raw wire frame; mergeable deltas may wait for the window, everything else flushes through.
+   * @param sessionId - the session the frame belongs to.
+   * @param frame - the raw assistant-stream frame exactly as received from the provider.
+   * @param rawSeq - the frame's position in the provider stream.
+   */
   accept(sessionId: SessionId, frame: SessionAssistantStreamFrame, rawSeq: number): void {
     if (this.windowMs === 0) {
       this.distribute(sessionId, [{ raw: frame, rawSeq }])
@@ -182,7 +187,10 @@ export class AssistantStreamCoalescer {
     this.distribute(sessionId, [{ raw: frame, rawSeq }])
   }
 
-  /** Synchronously publish the session's open window, if any (follower registration boundary). */
+  /**
+   * Synchronously publish the session's open window, if any (follower registration boundary).
+   * @param sessionId - the session whose pending window is published.
+   */
   flushSession(sessionId: SessionId): void {
     const window = this.windows.get(sessionId)
     if (window === undefined) return
@@ -192,7 +200,10 @@ export class AssistantStreamCoalescer {
     this.distribute(sessionId, window.pending.map(templateOf))
   }
 
-  /** Drop one session's open window without publishing (no followers remain, or the Agent retired). */
+  /**
+   * Drop one session's open window without publishing (no followers remain, or the Agent retired).
+   * @param sessionId - the session whose coalescing window is discarded.
+   */
   disposeSession(sessionId: SessionId): void {
     const window = this.windows.get(sessionId)
     if (window === undefined) return

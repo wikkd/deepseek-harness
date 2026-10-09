@@ -14,8 +14,9 @@ Every log read and write flows through a handle, never through id-addressed serv
 /** One persistence event slice returned by {@link SessionHandle.read}. */
 interface SessionHandleReadResult {
   /**
-   * Whether event values are exclusively owned or shared only after deep
-   * freezing. Slicing preserves the producer's state even when no events remain.
+   * Whether event values are exclusively owned or shared only after freezing
+   * the array, each envelope, and each envelope's immediate object values.
+   * Slicing preserves the producer's state even when no events remain.
    */
   readonly eventState: SessionSeedEventState
   /** Event values in a caller-owned outer array. */
@@ -231,8 +232,10 @@ Replay/fork is therefore `ctx.agents.create({ sessionId, seed, meta })` — a fo
 
 ```ts type-equiv
 /**
- * Aliasing state of an adoptable Session seed. `shared-frozen` permits deeply
- * frozen aliases plus independently owned unfrozen values in the same seed.
+ * Aliasing state of an adoptable Session seed. `shared-frozen` permits shared
+ * aliases frozen at the envelope and its immediate object values (plus
+ * independently owned unfrozen values in the same seed); content below that
+ * level is read-only by convention rather than individually frozen.
  */
 type SessionSeedEventState = 'detached' | 'shared-frozen'
 ```
@@ -243,7 +246,7 @@ type SessionSeedEventState = 'detached' | 'shared-frozen'
  * without another copy or freeze pass.
  */
 interface RestoredSessionOptions {
-  /** Events that are independently owned or already deeply frozen. */
+  /** Events that are independently owned or already frozen at this depth. */
   readonly seed: SessionEvent[]
   /** Independently owned storage metadata to validate and freeze in place. */
   readonly meta: SessionHeader

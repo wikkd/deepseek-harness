@@ -26,14 +26,23 @@ export const PET_EMOTION_FIELD = 'emotionExpressions'
 
 /** Preference values before the user has touched the pet. */
 export const PET_VISIBLE_DEFAULT = true
+/** Resting height in CSS pixels. */
 export const PET_HEIGHT_DEFAULT = 300
+/** Shortest allowed resting height in CSS pixels. */
 export const PET_HEIGHT_MIN = 160
+/** Tallest allowed resting height in CSS pixels. */
 export const PET_HEIGHT_MAX = 480
+/** Resting opacity, 1 = fully opaque. */
 export const PET_OPACITY_DEFAULT = 1
+/** Lowest allowed opacity. */
 export const PET_OPACITY_MIN = 0.2
+/** Dock side the pet ships with. */
 export const PET_ANCHOR_DEFAULT = 'right'
+/** Ambient-motion tempo the pet ships with. */
 export const PET_MOTION_RATE_DEFAULT = 'normal'
+/** Whether mouth movement follows assistant audio by default. */
 export const PET_LIP_SYNC_DEFAULT = true
+/** Whether the expression classifier drives expressions by default. */
 export const PET_EMOTION_DEFAULT = true
 
 /** One ambient-motion tempo. */

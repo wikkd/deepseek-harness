@@ -58,7 +58,11 @@ class VerificationScheduler {
 
 const verificationScheduler = new VerificationScheduler()
 
-/** Spawn one isolated task worker; development runs bootstrap TSX inline, builds load `worker.cjs`. */
+/**
+ * Spawn one isolated task worker; development runs bootstrap TSX inline, builds load `worker.cjs`.
+ * @param request - verification request delivered to the worker as `workerData`.
+ * @returns the worker entry and options for `new Worker(...)`.
+ */
 export function workerSpawn(request: object): { readonly entry: string | URL; readonly options: WorkerOptions } {
   /* v8 ignore next 3 -- built-worker coverage owns the bundled path. */
   if (!import.meta.url.endsWith('.ts')) {
