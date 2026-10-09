@@ -264,15 +264,31 @@ export class ClientModuleSystem implements ClientModuleLoader {
     if (visited.has(row.id)) return
     visited.add(row.id)
     const next = [...open, row.id]
+    // Sibling dependencies arrive in parallel. Deduplication stays correct
+    // because each arriveGraphRow claims its row id in `visited` during the
+    // synchronous prefix before its first await, and Promise.allSettled
+    // starts every sibling's synchronous prefix before any of them resumes.
+    const pending: Array<{ readonly dependency: BootModuleRow; readonly open: readonly string[] }> = []
     for (const request of row.external) {
       const id = stripClientSuffix(request)
       if (this.seed.has(request) || this.loadCache.has(id)) continue
       const dependency = this.graphRows.get(id)
-      if (dependency !== undefined) await this.arriveDependency(row.id, dependency, next, visited)
+      if (dependency !== undefined) pending.push({ dependency, open: next })
     }
     for (const packageName of row.inject) {
       const dependency = this.graphRows.get(packageName)
-      if (dependency !== undefined) await this.arriveDependency(row.id, dependency, [], visited)
+      if (dependency !== undefined) pending.push({ dependency, open: [] })
+    }
+    if (pending.length > 0) {
+      // allSettled lets every sibling finish (or fail) without unhandled
+      // rejections; the first failure in declaration order rethrows, matching
+      // the previous serial semantics.
+      const results = await Promise.allSettled(
+        pending.map(entry => this.arriveDependency(row.id, entry.dependency, entry.open, visited)),
+      )
+      for (const result of results) {
+        if (result.status === 'rejected') throw result.reason
+      }
     }
     await this.arrive(row)
   }
