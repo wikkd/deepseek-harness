@@ -178,6 +178,16 @@ describe('Session-list work slices', () => {
     expect(SessionController.Config({ nativeOpen: false, listWorkSliceMs: 32 })).toMatchObject({ nativeOpen: false, listWorkSliceMs: 32 })
   })
 
+  it('resolves the assistant-stream coalescing window default and explicit overrides', () => {
+    expect(SessionController.Config({}).assistantStreamCoalesceMs).toBe(33)
+    expect(SessionController.Config({ assistantStreamCoalesceMs: 0 }).assistantStreamCoalesceMs).toBe(0)
+    expect(SessionController.Config({ assistantStreamCoalesceMs: 8 }).assistantStreamCoalesceMs).toBe(8)
+  })
+
+  it.each([-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY])('rejects invalid coalescing window %s', (assistantStreamCoalesceMs) => {
+    expect(() => SessionController.Config({ assistantStreamCoalesceMs })).toThrow()
+  })
+
   it('routes an overridden budget through the public Session Controller', async () => {
     const h = await harness([{ id: 'first', phase: 'cold' }, { id: 'middle', phase: 'cold' }, { id: 'last', phase: 'cold' }], 4)
     const dispose = (): void => {}

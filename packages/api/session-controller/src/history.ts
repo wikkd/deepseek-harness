@@ -34,37 +34,78 @@ import type {
   SessionWireEvent,
 } from './types.ts'
 import { SessionAssistantStreamAccumulator } from './assistant-stream.ts'
+import type { AssistantStreamTemplate } from './assistant-stream-coalescer.ts'
+import { AssistantStreamCoalescer } from './assistant-stream-coalescer.ts'
 
 const DEFAULT_MAX_MESSAGES = 50
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
+
+/** Per-connection renumbering state for the coalesced assistant fan-out. */
+interface FollowerAssistantState {
+  /** Raw-frame ordinal cut: only frames numbered after this reach the client. */
+  cut: number
+  /** Next dense wire revision, seeded from the opening baseline's revision. */
+  nextRevision: number
+  /** Attempt id to the next dense wire chunk index, seeded from the baseline. */
+  attemptChunks: Map<string, number>
+}
 
 /** Implements cold-safe history operations delegated by the Session Controller. */
 export class SessionHistoryController {
   private readonly closeFollowers = new Set<() => void>()
   private readonly assistantStreams = new Map<SessionId, SessionAssistantStreamAccumulator>()
+  private readonly followerQueues = new Map<SessionId, Set<(template: AssistantStreamTemplate) => void>>()
+  private readonly rawSeqCounters = new Map<SessionId, number>()
+  private readonly coalescer: AssistantStreamCoalescer
+  private readonly coalesceMs: number
 
   /**
    * @param ctx - Host context carrying Session query and projection services.
    * @param promote - starts ordinary Session activation after snapshot delivery.
+   * @param assistantStreamCoalesceMs - fan-out coalescing window; 0 passes raw
+   *   frames through unchanged (the rollback identity).
    */
   constructor(
     private readonly ctx: Context,
     private readonly promote: (observation: SessionObservation) => void,
+    assistantStreamCoalesceMs = 0,
   ) {
+    this.coalesceMs = assistantStreamCoalesceMs
+    this.coalescer = new AssistantStreamCoalescer((sessionId, templates) => {
+      const queues = this.followerQueues.get(sessionId)
+      if (queues === undefined) return
+      for (const template of templates) {
+        for (const push of queues) push(template)
+      }
+    }, assistantStreamCoalesceMs)
     ctx.on('agent/assistant-stream', ({ agent, frame }) => {
-      let stream = this.assistantStreams.get(agent.session.id)
+      const sessionId = agent.session.id
+      let stream = this.assistantStreams.get(sessionId)
       if (stream === undefined) {
         stream = new SessionAssistantStreamAccumulator()
-        this.assistantStreams.set(agent.session.id, stream)
+        this.assistantStreams.set(sessionId, stream)
       }
       stream.accept(frame, cursorBeforeNext(agent.session.seq))
+      // The reconnect baseline always consumes raw frames; coalescing only
+      // shapes what live followers see. With no followers there is nothing
+      // to fan out, so the window machinery stays untouched.
+      if (this.followerQueues.get(sessionId)?.size) {
+        this.coalescer.accept(
+          sessionId,
+          wireAssistantStreamFrame(frame, cursorBeforeNext(agent.session.seq)),
+          (this.rawSeqCounters.get(sessionId) ?? 0) + 1,
+        )
+        this.rawSeqCounters.set(sessionId, (this.rawSeqCounters.get(sessionId) ?? 0) + 1)
+      }
     }, { global: true })
     ctx.on('agent/disposed', ({ agent }) => {
       this.assistantStreams.delete(agent.session.id)
+      this.coalescer.disposeSession(agent.session.id)
     }, { global: true })
     ctx.effect(() => () => {
       for (const close of this.closeFollowers) close()
       this.closeFollowers.clear()
+      this.coalescer.dispose()
     }, 'session-controller.history')
   }
 
@@ -130,7 +171,6 @@ export class SessionHistoryController {
       }
     >()
     let snapshotCursor: SessionSeqCursor | undefined
-    let assistantStreamOrdinal = 0
     let wake: (() => void) | undefined
     const notify = (): void => {
       const resume = wake
@@ -162,17 +202,22 @@ export class SessionHistoryController {
       }
       notify()
     }, { global: true })
-    const disposeAssistantStream = request.assistantStream !== true
-      ? undefined
-      : this.ctx.on('agent/assistant-stream', ({ agent, frame }) => {
-        if (agent.session.id !== target) return
-        buffered.pushBack({
-          type: 'assistant-stream',
-          frame: wireAssistantStreamFrame(frame, cursorBeforeNext(agent.session.seq)),
-          ordinal: ++assistantStreamOrdinal,
-        })
-        notify()
-      }, { global: true })
+    // The live assistant fan-out is shared: the controller-level listener
+    // feeds this queue through the coalescer, renumbering frames densely from
+    // the opening baseline (or passing them through when coalescing is off).
+    const assistantState: FollowerAssistantState = {
+      cut: 0,
+      nextRevision: 0,
+      attemptChunks: new Map<string, number>(),
+    }
+    const pushAssistant = (template: AssistantStreamTemplate): void => {
+      buffered.pushBack({
+        type: 'assistant-stream',
+        frame: materializeAssistantTemplate(assistantState, template, this.coalesceMs),
+        ordinal: template.rawSeq,
+      })
+      notify()
+    }
     const onAbort = (): void => { notify() }
     signal.addEventListener('abort', onAbort, { once: true })
     try {
@@ -188,8 +233,26 @@ export class SessionHistoryController {
       // The accumulator snapshot and this watermark are synchronous. Frames
       // through the cut are represented or superseded by that baseline,
       // including larger revisions from a retired Agent; later revision
-      // resets reach Client continuity validation.
-      const assistantStreamOrdinalCut = assistantStreamOrdinal
+      // resets reach Client continuity validation. The forced flush keeps
+      // that invariant under coalescing: windowed frames were already fed
+      // into the accumulator before the snapshot read, so publishing them to
+      // previously registered followers here cannot overlap this follower,
+      // whose cut lands after the flush on the same synchronous path.
+      if (assistantStream !== undefined) {
+        this.coalescer.flushSession(target)
+        assistantState.cut = this.rawSeqCounters.get(target) ?? 0
+        assistantState.nextRevision = assistantStream.revision
+        const active = assistantStream.activeAttempt
+        if (active !== undefined) {
+          assistantState.attemptChunks.set(active.attemptId, active.nextIndex)
+        }
+        let queues = this.followerQueues.get(target)
+        if (queues === undefined) {
+          queues = new Set<(template: AssistantStreamTemplate) => void>()
+          this.followerQueues.set(target, queues)
+        }
+        queues.add(pushAssistant)
+      }
       yield {
         type: 'snapshot',
         header: wireHeader(source.header),
@@ -218,7 +281,7 @@ export class SessionHistoryController {
           continue
         }
         if (item.type === 'assistant-stream') {
-          if (item.ordinal > assistantStreamOrdinalCut) {
+          if (item.ordinal > assistantState.cut) {
             yield { type: 'assistant-stream', frame: item.frame }
           }
           continue
@@ -236,7 +299,16 @@ export class SessionHistoryController {
       signal.removeEventListener('abort', onAbort)
       disposeCreated()
       disposeEvent()
-      disposeAssistantStream?.()
+      if (request.assistantStream === true) {
+        const queues = this.followerQueues.get(target)
+        if (queues !== undefined) {
+          queues.delete(pushAssistant)
+          if (queues.size === 0) {
+            this.followerQueues.delete(target)
+            this.coalescer.disposeSession(target)
+          }
+        }
+      }
     }
   }
 
@@ -290,6 +362,34 @@ function wireAssistantStreamFrame(
     ...frame,
     chunk: frame.chunk as JsonValue,
   }
+}
+
+/**
+ * Renumber one coalesced template densely for one follower, or return the raw
+ * frame unchanged when coalescing is off. With coalescing on, revisions
+ * continue from the opening baseline and chunk indexes continue from the
+ * baseline's active attempt (a fresh attempt restarts at zero, matching the
+ * client fold); an attempt the queue never saw starts at its raw index.
+ */
+function materializeAssistantTemplate(
+  state: FollowerAssistantState,
+  template: AssistantStreamTemplate,
+  coalesceMs: number,
+): SessionAssistantStreamFrame {
+  const raw = template.raw
+  if (coalesceMs === 0) return raw
+  const revision = ++state.nextRevision
+  if (raw.type === 'start') {
+    state.attemptChunks.set(raw.attemptId, 0)
+    return { ...raw, revision }
+  }
+  if (raw.type === 'chunk') {
+    const index = state.attemptChunks.get(raw.attemptId) ?? raw.index
+    state.attemptChunks.set(raw.attemptId, index + 1)
+    return { ...raw, revision, index }
+  }
+  const index = state.attemptChunks.get(raw.attemptId) ?? raw.index
+  return { ...raw, revision, index }
 }
 
 function projectionBlock(

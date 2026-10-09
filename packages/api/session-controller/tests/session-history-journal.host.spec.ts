@@ -8,7 +8,7 @@ import { LlmAttemptId, ToolCallId, createMessage, createToolResultMessage, creat
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { SessionHistoryController } from '@deepseek-ai/dsh-api-session-controller/src/history.ts'
-import type { SessionFollowFrame, SessionPage, SessionWireEvent } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { SessionFollowFrame, SessionAssistantStreamFrame, SessionPage, SessionWireEvent } from '@deepseek-ai/dsh-api-session-controller/types'
 import { createSessionTestRemote, installSessionReadTestServices } from './test-remote.ts'
 
 type CheckpointSource = Extract<MessageSource, { readonly kind: 'compact-checkpoint' }>
@@ -994,5 +994,192 @@ describe('Session history raw journal', () => {
       await iterator.next()
       await ctx.fiber.dispose()
     }
+  })
+})
+
+describe('Session history assistant fan-out coalescing', () => {
+  const ATTEMPT = LlmAttemptId('coalesce-attempt')
+  const textDelta = (revision: number, index: number, text: string, time: number): AssistantStreamFrame => ({
+    type: 'chunk', attemptId: ATTEMPT, revision, index, time,
+    chunk: { type: 'text-delta', index: 0, text },
+  })
+  const chunkFrames = (frames: SessionFollowFrame[]): SessionAssistantStreamFrame[] =>
+    frames.filter((frame): frame is Extract<SessionFollowFrame, { type: 'assistant-stream' }> => frame.type === 'assistant-stream')
+      .map(frame => frame.frame)
+
+  /** Pull until `count` assistant-stream frames arrive (durable events interleave in FIFO order). */
+  async function pullFrames(
+    iterator: AsyncIterator<SessionFollowFrame>,
+    count: number,
+  ): Promise<SessionFollowFrame[]> {
+    const frames: SessionFollowFrame[] = []
+    for (let guard = 0; guard < count + 20; guard++) {
+      const result = await iterator.next()
+      expect(result.done).toBe(false)
+      frames.push(result.value as SessionFollowFrame)
+      if (frames.filter(frame => frame.type === 'assistant-stream').length >= count) return frames
+    }
+    throw new Error('did not collect enough assistant-stream frames')
+  }
+
+  it('coalesces a dense delta run into one window frame, renumbered from the opening baseline', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const agent = { id: session.id, session, status: 'running', ctx } as Agent
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() }, 33)
+    const emit = (frame: AssistantStreamFrame): void => {
+      ctx.emit('agent/assistant-stream', { agent, frame })
+    }
+    emit({ type: 'start', attemptId: ATTEMPT, revision: 1, turn: 1, step: 1 })
+    const abort = new AbortController()
+    const iterator = history.follow({
+      address: { kind: 'session', sessionId: session.id },
+      assistantStream: true,
+    }, abort.signal)[Symbol.asyncIterator]()
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: { type: 'snapshot', assistantStream: { revision: 1, activeAttempt: { attemptId: ATTEMPT, nextIndex: 0 } } },
+    })
+
+    // Five dense deltas merge into one window frame; the boundary end frame
+    // flushes the window synchronously, so no timer wait is needed.
+    for (let index = 0; index < 5; index++) {
+      emit(textDelta(index + 2, index, String.fromCharCode(97 + index), index + 1))
+    }
+    const message = appendAssistantText(session, 'abcde', 1)
+    emit({
+      type: 'end', attemptId: ATTEMPT, revision: 7, index: 5,
+      outcome: { kind: 'committed', eventType: 'assistant/message', seq: message.seq },
+    })
+
+    const frames = chunkFrames(await pullFrames(iterator, 2))
+    expect(frames).toEqual([
+      expect.objectContaining({
+        type: 'chunk', attemptId: ATTEMPT,
+        revision: 2, index: 0, time: 1,
+        chunk: { type: 'text-delta', index: 0, text: 'abcde' },
+      }),
+      expect.objectContaining({
+        type: 'end', attemptId: ATTEMPT,
+        revision: 3, index: 1,
+        outcome: { kind: 'committed', eventType: 'assistant/message', seq: message.seq },
+      }),
+    ])
+    await disposeFollow(ctx, iterator, abort)
+  })
+
+  it('hands a mid-attempt reconnect a full baseline and no window overlap', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const agent = { id: session.id, session, status: 'running', ctx } as Agent
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() }, 33)
+    const emit = (frame: AssistantStreamFrame): void => {
+      ctx.emit('agent/assistant-stream', { agent, frame })
+    }
+    emit({ type: 'start', attemptId: ATTEMPT, revision: 1, turn: 1, step: 1 })
+    const abort1 = new AbortController()
+    const iterator1 = history.follow({
+      address: { kind: 'session', sessionId: session.id },
+      assistantStream: true,
+    }, abort1.signal)[Symbol.asyncIterator]()
+    await expect(iterator1.next()).resolves.toMatchObject({ value: { type: 'snapshot' } })
+
+    for (let index = 0; index < 5; index++) {
+      emit(textDelta(index + 2, index, String.fromCharCode(97 + index), index + 1))
+    }
+    // Second follower opens while the five deltas sit unflushed in the window.
+    const abort2 = new AbortController()
+    const iterator2 = history.follow({
+      address: { kind: 'session', sessionId: session.id },
+      assistantStream: true,
+    }, abort2.signal)[Symbol.asyncIterator]()
+    await expect(iterator2.next()).resolves.toMatchObject({
+      value: {
+        type: 'snapshot',
+        assistantStream: { revision: 6, activeAttempt: { attemptId: ATTEMPT, nextIndex: 5 } },
+      },
+    })
+
+    const message = appendAssistantText(session, 'abcde', 1)
+    emit({
+      type: 'end', attemptId: ATTEMPT, revision: 7, index: 5,
+      outcome: { kind: 'committed', eventType: 'assistant/message', seq: message.seq },
+    })
+
+    // Follower 1 sees the forced-flushed merged delta and then the end.
+    const frames1 = chunkFrames(await pullFrames(iterator1, 2))
+    expect(frames1.map(frame => frame.type)).toEqual(['chunk', 'end'])
+    expect(frames1[0]).toMatchObject({ revision: 2, index: 0, chunk: { text: 'abcde' } })
+    expect(frames1[1]).toMatchObject({ revision: 3, index: 1 })
+    // Follower 2 sees only the end: the deltas are fully inside its baseline.
+    const frames2 = chunkFrames(await pullFrames(iterator2, 1))
+    expect(frames2).toEqual([
+      expect.objectContaining({ type: 'end', revision: 7, index: 5 }),
+    ])
+
+    abort1.abort()
+    await iterator1.next()
+    abort2.abort()
+    await iterator2.next()
+    await ctx.fiber.dispose()
+  })
+
+  it('fans one raw frame stream out to every opt-in follower exactly once', async () => {
+    const { ctx } = await harness()
+    const session = ctx.sessions.create(undefined, { meta: { cwd: '/workspace' } })
+    const agent = { id: session.id, session, status: 'running', ctx } as Agent
+    const history = new SessionHistoryController(ctx, (observation) => { observation[Symbol.dispose]() }, 33)
+    const emit = (frame: AssistantStreamFrame): void => {
+      ctx.emit('agent/assistant-stream', { agent, frame })
+    }
+    const aborts = [new AbortController(), new AbortController(), new AbortController()]
+    const iterators = []
+    for (const abort of aborts) {
+      const iterator = history.follow({
+        address: { kind: 'session', sessionId: session.id },
+        assistantStream: true,
+      }, abort.signal)[Symbol.asyncIterator]()
+      await expect(iterator.next()).resolves.toMatchObject({ value: { type: 'snapshot' } })
+      iterators.push(iterator)
+    }
+    const abortPlain = new AbortController()
+    const plainIterator = history.follow({
+      address: { kind: 'session', sessionId: session.id },
+    }, abortPlain.signal)[Symbol.asyncIterator]()
+    await expect(plainIterator.next()).resolves.toMatchObject({ value: { type: 'snapshot' } })
+
+    emit({ type: 'start', attemptId: ATTEMPT, revision: 1, turn: 1, step: 1 })
+    for (let index = 0; index < 50; index++) {
+      emit(textDelta(index + 2, index, 'a', index + 1))
+    }
+    const message = appendAssistantText(session, 'a'.repeat(50), 1)
+    emit({
+      type: 'end', attemptId: ATTEMPT, revision: 52, index: 50,
+      outcome: { kind: 'committed', eventType: 'assistant/message', seq: message.seq },
+    })
+
+    // 50 raw delta frames fan out as the start, one merged chunk, and the end.
+    const sequences = []
+    for (const iterator of iterators) {
+      const frames = chunkFrames(await pullFrames(iterator, 3))
+      sequences.push(frames.map(frame => [
+        frame.type, frame.revision, frame.type === 'chunk' ? frame.chunk : undefined,
+      ]))
+      expect(frames).toHaveLength(3)
+    }
+    expect(sequences[0]).toEqual(sequences[1])
+    expect(sequences[1]).toEqual(sequences[2])
+    expect(sequences[0]).toEqual([
+      ['start', 1, undefined],
+      ['chunk', 2, { type: 'text-delta', index: 0, text: 'a'.repeat(50) }],
+      ['end', 3, undefined],
+    ])
+
+    abortPlain.abort()
+    await plainIterator.next()
+    for (const [index, iterator] of iterators.entries()) {
+      aborts[index]?.abort()
+      await iterator.next()
+    }
+    await ctx.fiber.dispose()
   })
 })
