@@ -178,6 +178,7 @@ describe('indextts sidecar', () => {
     settings = {
       indexttsDir: dir, serverScript: join(dir, 'indextts_server.py'), python: process.execPath,
       modelDir: join(dir, 'checkpoints'), host: '127.0.0.1', port, url, startupTimeoutMs: 10_000,
+      idleUnloadMs: 0,
     }
   })
 
@@ -239,5 +240,44 @@ describe('indextts sidecar', () => {
     await sidecar.ensureRunning()
     expect(await isServing(url)).toBe(true)
     sidecar.dispose()
+  }, 15_000)
+
+  it('unloads the child after the idle deadline and respawns on the next request', async () => {
+    let attempt = 0
+    const sidecar = createIndexttsSidecar(logger, { ...settings, idleUnloadMs: 400 }, () => {
+      attempt += 1
+      return spawnStub(port, 200)
+    })
+    await sidecar.ensureRunning()
+    expect(await isServing(url)).toBe(true)
+    // The idle timer fires 400ms after readiness; wait past it and confirm the child died.
+    await new Promise(resolve => setTimeout(resolve, 1200))
+    expect(await isServing(url)).toBe(false)
+    // The sidecar stays spawnable after an idle unload.
+    await sidecar.ensureRunning()
+    expect(attempt).toBe(2)
+    expect(await isServing(url)).toBe(true)
+    sidecar.dispose()
+    await new Promise(resolve => setTimeout(resolve, 300))
+    expect(await isServing(url)).toBe(false)
+  }, 15_000)
+
+  it('retire kills the child immediately while keeping the sidecar spawnable', async () => {
+    const sidecar = createIndexttsSidecar(logger, { ...settings, idleUnloadMs: 0 }, () => spawnStub(port, 200))
+    await sidecar.ensureRunning()
+    expect(await isServing(url)).toBe(true)
+    sidecar.retire()
+    await new Promise(resolve => setTimeout(resolve, 300))
+    expect(await isServing(url)).toBe(false)
+    await sidecar.ensureRunning()
+    expect(await isServing(url)).toBe(true)
+    sidecar.dispose()
+  }, 15_000)
+
+  it('dispose overrides the idle timer', async () => {
+    const sidecar = createIndexttsSidecar(logger, { ...settings, idleUnloadMs: 60_000 }, () => spawnStub(port, 200))
+    await sidecar.ensureRunning()
+    sidecar.dispose()
+    await expect(sidecar.ensureRunning()).rejects.toThrow(/disposed/u)
   }, 15_000)
 })

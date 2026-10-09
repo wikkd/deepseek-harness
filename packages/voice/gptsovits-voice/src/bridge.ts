@@ -58,6 +58,12 @@ export interface BridgeConfig {
   requestTimeoutMs: number
   /** Normalize loudness to -16 LUFS so the two engines' output levels match. */
   loudnorm: boolean
+  /**
+   * Bring the IndexTTS service up before a Chinese synthesis when the plugin
+   * manages it (lazy start after an idle unload); undefined when IndexTTS is
+   * managed elsewhere and requests just hit the configured URL.
+   */
+  ensureIndextts?: (() => Promise<void>) | undefined
 }
 
 /** OpenAI audio-speech request body; only the fields the bridge consumes. */
@@ -202,10 +208,20 @@ async function handle(cfg: BridgeConfig, req: IncomingMessage, res: ServerRespon
     }
     const engine = resolveEngine(profile.engine, textLang, availability)
     const speed = Math.min(2, Math.max(0.5, typeof body.speed === 'number' ? body.speed : 1))
-    const wav = engine === 'indextts'
-      ? await indexttsTts(cfg.indexttsUrl, text, profile.indexRefAudioPath, textLang, cfg.requestTimeoutMs)
-      : await gptsovitsTts(cfg, text, profile, textLang, speed)
-    if (wav.length < 64) throw new Error(`${engine} produced empty audio`)
+    if (engine === 'indextts') {
+      // The managed service may have been unloaded after idle; a cold start
+      // pays the 20-40s model load on this request's clock.
+      const timeoutMs = cfg.requestTimeoutMs + (cfg.ensureIndextts !== undefined ? 60_000 : 0)
+      if (cfg.ensureIndextts !== undefined) await cfg.ensureIndextts()
+      const wav = await indexttsTts(cfg.indexttsUrl, text, profile.indexRefAudioPath, textLang, timeoutMs)
+      if (wav.length < 64) throw new Error('indextts produced empty audio')
+      const mp3 = await ffmpegToMp3(cfg.ffmpegPath, wav, cfg.loudnorm)
+      res.writeHead(200, { 'content-type': 'audio/mpeg', 'content-length': mp3.length })
+      res.end(mp3)
+      return true
+    }
+    const wav = await gptsovitsTts(cfg, text, profile, textLang, speed)
+    if (wav.length < 64) throw new Error('gptsovits produced empty audio')
     const mp3 = await ffmpegToMp3(cfg.ffmpegPath, wav, cfg.loudnorm)
     res.writeHead(200, { 'content-type': 'audio/mpeg', 'content-length': mp3.length })
     res.end(mp3)

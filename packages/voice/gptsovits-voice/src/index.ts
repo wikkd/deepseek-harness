@@ -59,6 +59,12 @@ export interface Config {
   indexttsPort?: number
   /** Spawn the IndexTTS service on profile boot and wait for its model load. */
   autostartIndextts?: boolean
+  /**
+   * Kill the IndexTTS service after this many idle milliseconds to free its
+   * ~5 GB; the next Chinese request respawns it (20-40 s model load). `0`
+   * keeps it loaded for the profile lifetime.
+   */
+  indexttsIdleUnloadMs?: number
   /** Startup deadline for the IndexTTS service; the model load alone takes 20-40s. */
   indexttsStartupTimeoutMs?: number
   /** Normalize engine output to -16 LUFS so both voices read at the same level. */
@@ -111,6 +117,7 @@ export const Config: z<Config> = z.object({
   indexttsPython: z.string().description('Python interpreter for the IndexTTS service; empty uses the checkout .venv.').default(''),
   indexttsPort: z.number().description('Port of the IndexTTS service.').default(9881),
   autostartIndextts: z.boolean().description('Spawn the IndexTTS service on profile boot and wait for its model load.').default(true),
+  indexttsIdleUnloadMs: z.number().description('Kill the IndexTTS service after this many idle milliseconds to free its ~5 GB; 0 keeps it loaded.').default(600_000),
   indexttsStartupTimeoutMs: z.number().description('Startup deadline for the IndexTTS service; the model load takes 20-40s.').default(240_000),
   loudnorm: z.boolean().description('Normalize engine output to -16 LUFS so both voices read at the same level.').default(false),
 })
@@ -133,6 +140,7 @@ interface ResolvedConfig {
   indexttsPython: string
   indexttsPort: number
   autostartIndextts: boolean
+  indexttsIdleUnloadMs: number
   indexttsStartupTimeoutMs: number
   loudnorm: boolean
 }
@@ -184,6 +192,7 @@ function resolveConfig(config: Config): ResolvedConfig {
     indexttsPython: (config.indexttsPython ?? '').trim(),
     indexttsPort: config.indexttsPort ?? 9881,
     autostartIndextts: config.autostartIndextts ?? true,
+    indexttsIdleUnloadMs: config.indexttsIdleUnloadMs ?? 600_000,
     indexttsStartupTimeoutMs: config.indexttsStartupTimeoutMs ?? 240_000,
     loudnorm: config.loudnorm ?? false,
   }
@@ -284,9 +293,10 @@ async function waitUntilResponsive(ctx: Context, cfg: ResolvedConfig, stopped: {
 /**
  * Build the bridge settings for the resolved plugin config.
  * @param cfg resolved settings.
+ * @param ensureIndextts lazy-start callback; undefined when IndexTTS is unmanaged.
  * @returns the bridge server settings.
  */
-function toBridgeConfig(cfg: ResolvedConfig): BridgeConfig {
+function toBridgeConfig(cfg: ResolvedConfig, ensureIndextts?: () => Promise<void>): BridgeConfig {
   return {
     host: cfg.host,
     port: cfg.bridgePort,
@@ -297,6 +307,7 @@ function toBridgeConfig(cfg: ResolvedConfig): BridgeConfig {
     voices: cfg.voices,
     requestTimeoutMs: cfg.requestTimeoutMs,
     loudnorm: cfg.loudnorm,
+    ensureIndextts,
   }
 }
 
@@ -331,9 +342,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     ctx.logger.warn('gptsovits-voice: no voices configured — every synthesis request will be rejected until the voices config lists one')
   }
 
-  // The IndexTTS service loads its model before binding the port, so the boot
-  // warm-up waits out the full 20-40s load; dsh-tts's per-request cloud timeout
-  // (profile: 60s) cannot absorb a cold start mid-conversation.
+  // IndexTTS hosting: validate the deployment up front, then either warm the
+  // service at boot (autostartIndextts) or let the first Chinese request spawn
+  // it lazily. After every request the idle timer re-arms; when it fires the
+  // model process is killed and its ~5 GB freed until the next request.
+  let ensureIndextts: (() => Promise<void>) | undefined
   if (cfg.indexttsDir !== '') {
     validateIndexttsFiles({
       indexttsDir: cfg.indexttsDir,
@@ -350,7 +363,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       port: cfg.indexttsPort,
       url: `http://${cfg.host}:${String(cfg.indexttsPort)}`,
       startupTimeoutMs: cfg.indexttsStartupTimeoutMs,
+      idleUnloadMs: cfg.indexttsIdleUnloadMs,
     })
+    ensureIndextts = () => sidecar.ensureRunning()
     ctx.effect(() => {
       return () => { sidecar.dispose() }
     }, 'indextts-sidecar')
@@ -359,9 +374,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         ctx.logger.error('IndexTTS startup failed: %s — Chinese requests fall back per bridge engine rules', error instanceof Error ? error.message : String(error))
       })
     } else {
-      ctx.logger.info('gptsovits-voice: IndexTTS autostart disabled — the first Chinese request pays the model load')
+      ctx.logger.info('gptsovits-voice: IndexTTS starts lazily on the first Chinese request and unloads after %dms idle',
+        cfg.indexttsIdleUnloadMs)
     }
   }
 
-  ctx.effect(() => startBridge(ctx, toBridgeConfig(cfg)), 'gptsovits-bridge')
+  ctx.effect(() => startBridge(ctx, toBridgeConfig(cfg, ensureIndextts)), 'gptsovits-bridge')
 }

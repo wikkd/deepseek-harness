@@ -53,6 +53,7 @@ Choose it when a GPT-SoVITS checkout with trained voice weights exists on the ma
 | `requestTimeoutMs` | `180000` | Fetch timeout for one synthesis request. |
 | `defaultVoice` | `''` | Voice used when a request names no profile or an unknown one. |
 | `voices` | `[]` | Cloned-voice profiles: name, reference wav, prompt text, prompt/text language, auxiliary reference clips. |
+| `indexttsIdleUnloadMs` | `600000` | Kill the IndexTTS service after this many idle milliseconds to free its ~5 GB; the next Chinese request respawns it (20-40 s model load). `0` keeps it loaded. |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-gptsovits-voice) is the exhaustive source for every accepted field.
 
@@ -64,7 +65,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The bridge (`src/bridge.ts`) maps the requested `voice` to a configured profile, synthesizes through GPT-SoVITS `POST /tts` (injecting the reference clip and prompt text the api_v2 contract requires), detects the synthesis language per request (kana → ja, hangul → ko, han → zh, else en), and transcodes the wav answer to mp3 — dsh-tts treats every custom-provider response as `audio/mpeg`. The lifecycle owner (`src/index.ts`) spawns `api_v2.py` when `autostartApi` is on and the port is not already served, polls for readiness, forwards its output into the dsh logger, and on profile shutdown closes the bridge first, then kills the process.
+The bridge (`src/bridge.ts`) maps the requested `voice` to a configured profile, synthesizes through GPT-SoVITS `POST /tts` (injecting the reference clip and prompt text the api_v2 contract requires), detects the synthesis language per request (kana → ja, hangul → ko, han → zh, else en), and transcodes the wav answer to mp3 — dsh-tts treats every custom-provider response as `audio/mpeg`. The lifecycle owner (`src/index.ts`) spawns `api_v2.py` when `autostartApi` is on and the port is not already served, polls for readiness, forwards its output into the dsh logger, and on profile shutdown closes the bridge first, then kills the process. When the plugin also manages IndexTTS, every Chinese synthesis first runs `ensureRunning` on the sidecar — with `autostartIndextts: false` that is a lazy start, and after `indexttsIdleUnloadMs` of silence the sidecar kills the child so the ~5 GB model returns to the OS until the next request.
 
 </details>
 

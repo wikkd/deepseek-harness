@@ -1351,6 +1351,12 @@ export interface Config {
   indexttsPort?: number
   /** Spawn the IndexTTS service on profile boot and wait for its model load. */
   autostartIndextts?: boolean
+  /**
+   * Kill the IndexTTS service after this many idle milliseconds to free its
+   * ~5 GB; the next Chinese request respawns it (20-40 s model load). `0`
+   * keeps it loaded for the profile lifetime.
+   */
+  indexttsIdleUnloadMs?: number
   /** Startup deadline for the IndexTTS service; the model load alone takes 20-40s. */
   indexttsStartupTimeoutMs?: number
   /** Normalize engine output to -16 LUFS so both voices read at the same level. */

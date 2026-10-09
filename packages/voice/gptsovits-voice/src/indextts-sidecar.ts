@@ -37,6 +37,11 @@ export interface IndexttsSidecarSettings {
   url: string
   /** Deadline for one startup poll sequence; the model load alone takes 20-40 s. */
   startupTimeoutMs: number
+  /**
+   * Kill the child after this many idle milliseconds to free its ~5 GB; `0`
+   * keeps it for the profile lifetime. The next request pays the model load.
+   */
+  idleUnloadMs: number
 }
 
 /**
@@ -85,6 +90,11 @@ export interface IndexttsSidecar {
    * @throws when startup times out, the child exits first, or the profile is stopping.
    */
   ensureRunning(): Promise<void>
+  /**
+   * Kill the child to free its memory while the profile keeps running; a later
+   * `ensureRunning` respawns it. No-op when nothing is running.
+   */
+  retire(): void
   /** Kill the child (if any) and refuse further startups; the profile disposer owns this. */
   dispose(): void
 }
@@ -102,6 +112,7 @@ export function createIndexttsSidecar(logger: SidecarLogger, settings: IndexttsS
   let child: ChildProcess | undefined
   let startup: Promise<void> | undefined
   let stopped = false
+  let idleTimer: NodeJS.Timeout | undefined
 
   /**
    * Forward the child output into the dsh logger, line-buffered.
@@ -151,24 +162,53 @@ export function createIndexttsSidecar(logger: SidecarLogger, settings: IndexttsS
     throw new Error(`IndexTTS did not become ready at ${settings.url} within ${String(settings.startupTimeoutMs)} ms — see the [indextts] log lines above`)
   }
 
+  /**
+   * Kill the running child, if any. `retire` (idle unload) keeps the sidecar
+   * spawnable; `dispose` does not.
+   */
+  const killChild = (): void => {
+    if (idleTimer !== undefined) { clearTimeout(idleTimer); idleTimer = undefined }
+    if (child !== undefined && child.exitCode === null && !child.killed) child.kill()
+    child = undefined
+  }
+
+  const armIdleUnload = (): void => {
+    if (idleTimer !== undefined) clearTimeout(idleTimer)
+    if (settings.idleUnloadMs <= 0) return
+    idleTimer = setTimeout(() => {
+      idleTimer = undefined
+      if (child !== undefined && startup === undefined) {
+        logger.info('IndexTTS idle for %dms — unloading the model (pid %s)', settings.idleUnloadMs, String(child.pid))
+        killChild()
+      }
+    }, settings.idleUnloadMs)
+  }
+
   return {
     async ensureRunning(): Promise<void> {
       if (stopped) throw new Error('the IndexTTS sidecar is disposed')
-      if (await isServing(settings.url)) return
+      if (await isServing(settings.url)) {
+        armIdleUnload()
+        return
+      }
       if (startup !== undefined) return startup
       const attempt = start()
       startup = attempt
       try {
         await attempt
+        armIdleUnload()
       } finally {
         if (startup === attempt) startup = undefined
       }
     },
+    retire(): void {
+      if (stopped) return
+      killChild()
+    },
     dispose(): void {
       stopped = true
       startup = undefined
-      if (child !== undefined && child.exitCode === null && !child.killed) child.kill()
-      child = undefined
+      killChild()
     },
   }
 }
