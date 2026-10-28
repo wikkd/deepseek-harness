@@ -51,6 +51,8 @@ kind: "package-reference"
 | `autostartApi` | `true` | 随 profile 启动拉起 api_v2。 |
 | `apiStartupTimeoutMs` | `180000` | 轮询 api 就绪的最长时间，超时记日志。 |
 | `requestTimeoutMs` | `180000` | 单次合成请求的 fetch 超时。 |
+| `batchSize` | `8` | 每个 GPT-SoVITS 批次并行合成的最大分句数；`1` 保持串行合成。 |
+| `warmup` | `true` | 拉起的 api_v2 就绪后先合成一句短句，把权重加载挪到 profile 启动期而不是第一条回复里。 |
 | `defaultVoice` | `''` | 请求未指名或指错音色档案时使用的音色。 |
 | `voices` | `[]` | 克隆音色档案：名称、参考 wav、提示文本、提示/正文语言、辅助参考音频。 |
 | `indexttsIdleUnloadMs` | `600000` | IndexTTS 服务空闲这么多毫秒后杀掉进程释放约 5 GB 内存；下一条中文请求会重新拉起（20-40 秒模型加载）。`0` 表示一直常驻。 |
@@ -65,7 +67,7 @@ kind: "package-reference"
 <details>
 <summary>实现内部——点击展开</summary>
 
-桥（`src/bridge.ts`）把请求的 `voice` 映射到配置的音色档案，经 GPT-SoVITS `POST /tts` 合成（注入 api_v2 契约要求的参考音频与提示文本），按请求逐个判定合成语言（片假名 → ja，谚文 → ko，汉字 → zh，其余 en），并把 wav 应答转成 mp3——dsh-tts 把 custom provider 的所有应答当作 `audio/mpeg`。生命周期归属（`src/index.ts`）：`autostartApi` 开启且端口未被占用时拉起 `api_v2.py`，轮询就绪，把输出转发进 dsh 日志；profile 停止时先关桥、再杀进程。插件同时托管 IndexTTS 时，每次中文合成都会先走 sidecar 的 `ensureRunning`——`autostartIndextts: false` 下这是惰性启动；空闲超过 `indexttsIdleUnloadMs` 后 sidecar 杀掉子进程，把约 5 GB 的模型内存还给系统，直到下一条请求。
+桥（`src/bridge.ts`）把请求的 `voice` 映射到配置的音色档案，经 GPT-SoVITS `POST /tts` 合成（注入 api_v2 契约要求的参考音频与提示文本），按请求逐个判定合成语言（片假名 → ja，谚文 → ko，汉字 → zh，其余 en），并把 wav 应答转成 mp3——dsh-tts 把 custom provider 的所有应答当作 `audio/mpeg`。合成前桥固定发送 `cut5`，引擎按标点分句；`batchSize` 限制单批并行合成的分句数，以少量显存换取多分句延迟下降。生命周期归属（`src/index.ts`）：`autostartApi` 开启且端口未被占用时拉起 `api_v2.py`，轮询就绪，`warmup` 开启时再用一句短合成加载权重（就绪探测在模型加载前就会应答），把输出转发进 dsh 日志；profile 停止时先关桥、再杀进程。插件同时托管 IndexTTS 时，每次中文合成都会先走 sidecar 的 `ensureRunning`——`autostartIndextts: false` 下这是惰性启动；空闲超过 `indexttsIdleUnloadMs` 后 sidecar 杀掉子进程，把约 5 GB 的模型内存还给系统，直到下一条请求。
 
 </details>
 

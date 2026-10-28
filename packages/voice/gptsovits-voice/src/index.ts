@@ -29,6 +29,27 @@ export const name = 'gptsovits-voice'
 export interface Config {
   /** Absolute GPT-SoVITS checkout directory (api_v2.py sits at its root). */
   gptsovitsDir?: string
+  /**
+   * Base URL of an already-running GPT-SoVITS api_v2 (`http://host:port`).
+   * Set this to run the bridge on another machine than the engine (the bridge
+   * is pure Node plus ffmpeg; the engines are not) — the plugin then spawns
+   * nothing and `gptsovitsDir`/`apiPort`/`autostartApi` are ignored.
+   */
+  remoteGptsovitsUrl?: string
+  /**
+   * Base URL of an already-running IndexTTS service (`http://host:port`),
+   * usually an SSH reverse tunnel to the GPU node. Required together with
+   * `remoteGptsovitsUrl`; empty in remote mode keeps IndexTTS off.
+   */
+  remoteIndexttsUrl?: string
+  /**
+   * URL of the GPU node's IndexTTS keeper (`POST /wake` starts the engine and
+   * returns when the model is resident). Empty means IndexTTS is managed
+   * elsewhere and the bridge just hits `remoteIndexttsUrl` directly.
+   */
+  remoteIndexttsKeeperUrl?: string
+  /** Absolute ffmpeg executable for the wav→mp3 transcode; empty uses the bundled ffmpeg-static. */
+  ffmpegPath?: string
   /** Python interpreter for api_v2; empty uses `<gptsovitsDir>/.venv/Scripts/python.exe`. */
   pythonPath?: string
   /** Host both api_v2 and the bridge bind to. */
@@ -45,6 +66,17 @@ export interface Config {
   apiStartupTimeoutMs?: number
   /** Fetch timeout for one synthesis request. */
   requestTimeoutMs?: number
+  /**
+   * Maximum clauses synthesized together per GPT-SoVITS batch. The engine
+   * splits text at punctuation (`cut5`); `1` keeps serial synthesis, higher
+   * values trade VRAM for lower multi-clause latency.
+   */
+  batchSize?: number
+  /**
+   * Synthesize one short line as soon as a spawned api_v2 answers, so its
+   * weights load during profile boot instead of inside the first reply.
+   */
+  warmup?: boolean
   /** Voice used when a request names no profile or an unknown one. */
   defaultVoice?: string
   /** Cloned-voice profiles served by the bridge. */
@@ -93,6 +125,10 @@ export interface VoiceProfileConfig {
 
 export const Config: z<Config> = z.object({
   gptsovitsDir: z.string().description('Absolute GPT-SoVITS checkout directory (api_v2.py sits at its root).').default(''),
+  remoteGptsovitsUrl: z.string().description('Base URL of a remote GPT-SoVITS api_v2; set to run the bridge without spawning engines locally.').default(''),
+  remoteIndexttsUrl: z.string().description('Base URL of a remote IndexTTS service (e.g. an SSH tunnel to the GPU node).').default(''),
+  remoteIndexttsKeeperUrl: z.string().description('URL of the GPU node IndexTTS keeper; POST /wake starts the engine and waits for readiness.').default(''),
+  ffmpegPath: z.string().description('Absolute ffmpeg executable; empty uses the bundled ffmpeg-static.').default(''),
   pythonPath: z.string().description('Python interpreter for api_v2; empty uses the checkout .venv.').default(''),
   host: z.string().description('Host both engines and the bridge bind to.').default('127.0.0.1'),
   apiPort: z.number().description('Port of the GPT-SoVITS api_v2.').default(9880),
@@ -101,6 +137,8 @@ export const Config: z<Config> = z.object({
   autostartApi: z.boolean().description('Spawn api_v2 on profile boot.').default(true),
   apiStartupTimeoutMs: z.number().description('How long to poll for api readiness before logging a timeout.').default(180_000),
   requestTimeoutMs: z.number().description('Fetch timeout for one synthesis request.').default(180_000),
+  batchSize: z.number().description('Maximum clauses synthesized together per GPT-SoVITS batch; 1 keeps serial synthesis.').min(1).max(16).default(8),
+  warmup: z.boolean().description('Warm the spawned api_v2 model with one short synthesis at boot.').default(true),
   defaultVoice: z.string().description('Voice used when a request names no profile or an unknown one.').default(''),
   voices: z.array(z.object({
     name: z.string(),
@@ -124,6 +162,14 @@ export const Config: z<Config> = z.object({
 
 /** Config after schemastery filled every default and the paths are normalized. */
 interface ResolvedConfig {
+  /** Base URL of a remote GPT-SoVITS api_v2; non-empty switches the plugin to remote mode. */
+  remoteGptsovitsUrl: string
+  /** Base URL of a remote IndexTTS service; used only in remote mode. */
+  remoteIndexttsUrl: string
+  /** GPU node IndexTTS keeper URL; empty means the bridge hits remoteIndexttsUrl directly. */
+  remoteIndexttsKeeperUrl: string
+  /** Absolute ffmpeg executable; empty resolves to the bundled ffmpeg-static binary. */
+  ffmpegPath: string
   gptsovitsDir: string
   pythonPath: string
   host: string
@@ -133,6 +179,8 @@ interface ResolvedConfig {
   autostartApi: boolean
   apiStartupTimeoutMs: number
   requestTimeoutMs: number
+  batchSize: number
+  warmup: boolean
   defaultVoice: string
   voices: Map<string, VoiceProfile>
   indexttsDir: string
@@ -175,6 +223,10 @@ function resolveConfig(config: Config): ResolvedConfig {
   const indexttsDir = (config.indexttsDir ?? '').trim()
   const configuredScript = (config.indexttsServerScript ?? '').trim()
   return {
+    remoteGptsovitsUrl: (config.remoteGptsovitsUrl ?? '').trim().replace(/\/+$/, ''),
+    remoteIndexttsUrl: (config.remoteIndexttsUrl ?? '').trim().replace(/\/+$/, ''),
+    remoteIndexttsKeeperUrl: (config.remoteIndexttsKeeperUrl ?? '').trim().replace(/\/+$/, ''),
+    ffmpegPath: (config.ffmpegPath ?? '').trim(),
     gptsovitsDir,
     pythonPath: (config.pythonPath ?? '').trim(),
     host: config.host ?? '127.0.0.1',
@@ -184,6 +236,8 @@ function resolveConfig(config: Config): ResolvedConfig {
     autostartApi: config.autostartApi ?? true,
     apiStartupTimeoutMs: config.apiStartupTimeoutMs ?? 180_000,
     requestTimeoutMs: config.requestTimeoutMs ?? 180_000,
+    batchSize: config.batchSize ?? 8,
+    warmup: config.warmup ?? true,
     defaultVoice: (config.defaultVoice ?? '').trim() || (voices.keys().next().value ?? ''),
     voices,
     indexttsDir,
@@ -283,20 +337,151 @@ function spawnApi(ctx: Context, cfg: ResolvedConfig): () => void {
  * @param ctx the plugin fiber context.
  * @param cfg resolved settings.
  * @param stopped set by the api disposer; stops the poll loop.
+ * @returns true when the api answered before the deadline or the profile stopped.
  */
-async function waitUntilResponsive(ctx: Context, cfg: ResolvedConfig, stopped: { value: boolean }): Promise<void> {
+async function waitUntilResponsive(ctx: Context, cfg: ResolvedConfig, stopped: { value: boolean }): Promise<boolean> {
   const deadline = Date.now() + cfg.apiStartupTimeoutMs
   const startedAt = Date.now()
   while (Date.now() < deadline) {
-    if (stopped.value) return
+    if (stopped.value) return false
     if (await isServing(cfg.host, cfg.apiPort)) {
       ctx.logger.info('gptsovits-voice: api_v2 ready at http://%s:%d (took %ds)', cfg.host, cfg.apiPort, Math.round((Date.now() - startedAt) / 1000))
-      return
+      return true
     }
     await new Promise(resolve => setTimeout(resolve, 1000))
   }
   if (!stopped.value) {
     ctx.logger.error('gptsovits-voice: api_v2 not ready after %dms — check the [gptsovits-api] log lines above', cfg.apiStartupTimeoutMs)
+  }
+  return false
+}
+
+/** Text of the one-time warm-up synthesis; its content is irrelevant to the load. */
+const WARMUP_TEXT = '你好。'
+
+/** The subset of the plugin logger the warm-up reports through. */
+export interface WarmupLog {
+  /**
+   * Report a completed warm-up.
+   * @param format printf-style message.
+   * @param values message arguments.
+   */
+  info(format: string, ...values: unknown[]): void
+  /**
+   * Report a warm-up that left the model cold.
+   * @param format printf-style message.
+   * @param values message arguments.
+   */
+  warn(format: string, ...values: unknown[]): void
+}
+
+/** What a spawned api_v2 needs for its one-time model load. */
+export interface WarmupSettings {
+  /** Whether the operator asked for the warm-up. */
+  enabled: boolean
+  /** Base URL of the spawned api_v2. */
+  apiUrl: string
+  /** Voice whose reference clip and transcript drive the warm-up request; undefined when no voice is configured. */
+  voice: VoiceProfile | undefined
+  /** Fetch timeout for the warm-up request. */
+  requestTimeoutMs: number
+}
+
+/**
+ * Load the api_v2 weights with one short synthesis. api_v2 answers `/` before
+ * the model is loaded, so without this the first reply pays the whole load
+ * (tens of seconds) inside its own timeout window.
+ * @param settings what to synthesize and how long to wait.
+ * @param log plugin logger for the outcome.
+ * @param stopped set by the api disposer; a result arriving after disposal is ignored.
+ * @returns true when the model answered successfully.
+ */
+export async function warmUpApi(settings: WarmupSettings, log: WarmupLog, stopped: { value: boolean }): Promise<boolean> {
+  const { enabled, apiUrl, voice } = settings
+  if (!enabled || voice === undefined) return false
+  const startedAt = Date.now()
+  try {
+    const response = await fetch(`${apiUrl}/tts`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        text: WARMUP_TEXT,
+        text_lang: 'zh',
+        ref_audio_path: voice.refAudioPath,
+        prompt_text: voice.promptText,
+        prompt_lang: voice.promptLang,
+        text_split_method: 'cut5',
+        media_type: 'wav',
+        streaming_mode: false,
+      }),
+      signal: AbortSignal.timeout(settings.requestTimeoutMs),
+    })
+    await response.arrayBuffer()
+    if (stopped.value) return false
+    if (!response.ok) {
+      log.warn('gptsovits-voice: warm-up answered HTTP %d — the first reply may still wait for the model load', response.status)
+      return false
+    }
+    log.info('gptsovits-voice: api_v2 warmed up in %ds (model loaded)', Math.round((Date.now() - startedAt) / 1000))
+    return true
+  } catch (error) {
+    if (!stopped.value) {
+      log.warn('gptsovits-voice: warm-up failed (%s) — the first reply pays the model load',
+        error instanceof Error ? error.message : String(error))
+    }
+    return false
+  }
+}
+
+/**
+ * Resolve the ffmpeg executable for the bridge transcode: the configured
+ * absolute path wins, else the bundled ffmpeg-static binary, else fail at
+ * load — the bridge cannot serve audio without it.
+ * @param configured the `ffmpegPath` config value (may be empty).
+ * @returns an absolute ffmpeg executable path.
+ * @throws when neither the config path nor ffmpeg-static is available.
+ */
+function resolveFfmpegPath(configured: string): string {
+  if (configured !== '') {
+    if (!existsSync(configured)) {
+      throw new Error(`gptsovits-voice: ffmpegPath not found at ${configured}`)
+    }
+    return configured
+  }
+  if (ffmpegStatic) return ffmpegStatic
+  throw new Error('gptsovits-voice: no ffmpeg available — install ffmpeg-static or set ffmpegPath')
+}
+
+/**
+ * Build the bridge-side `ensureIndextts` callback that wakes a remote IndexTTS
+ * keeper instead of managing a local child process. The keeper starts the
+ * engine and returns only once the model is resident, so concurrent callers
+ * share one in-flight POST.
+ * @param keeperUrl the keeper base URL (`POST /wake`).
+ * @returns the wake callback; rejects when the keeper fails or times out.
+ */
+function createKeeperWake(keeperUrl: string): () => Promise<void> {
+  let inFlight: Promise<void> | undefined
+  return () => {
+    if (inFlight !== undefined) return inFlight
+    const attempt = (async () => {
+      const res = await fetch(`${keeperUrl}/wake`, { method: 'POST', signal: AbortSignal.timeout(240_000) })
+      if (!res.ok) {
+        let detail = `HTTP ${String(res.status)}`
+        try { detail += `: ${JSON.stringify(await res.json()).slice(0, 300)}` } catch { /* body was not json; the status alone is the message */ }
+        throw new Error(`IndexTTS keeper wake failed (${detail})`)
+      }
+    })()
+    inFlight = attempt
+    // Single flight: concurrent syntheses share this attempt; the rejection is
+    // delivered through the returned promise, the detached chain only clears
+    // the slot.
+    attempt.then(() => {
+      if (inFlight === attempt) inFlight = undefined
+    }, () => {
+      if (inFlight === attempt) inFlight = undefined
+    })
+    return attempt
   }
 }
 
@@ -318,6 +503,7 @@ function toBridgeConfig(cfg: ResolvedConfig, ensureIndextts: (() => Promise<void
     defaultVoice: cfg.defaultVoice,
     voices: cfg.voices,
     requestTimeoutMs: cfg.requestTimeoutMs,
+    batchSize: cfg.batchSize,
     loudnorm: cfg.loudnorm,
     ensureIndextts,
     log: warn,
@@ -332,6 +518,36 @@ function toBridgeConfig(cfg: ResolvedConfig, ensureIndextts: (() => Promise<void
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
   const cfg = resolveConfig(config)
+
+  // Remote mode: the bridge runs beside the model (it is pure Node plus
+  // ffmpeg) while the engines stay on the GPU node behind SSH tunnels. The
+  // plugin spawns nothing; IndexTTS wake-ups go to the keeper service.
+  if (cfg.remoteGptsovitsUrl !== '') {
+    if (cfg.gptsovitsDir !== '' || cfg.indexttsDir !== '') {
+      ctx.logger.warn('gptsovits-voice: remoteGptsovitsUrl is set — gptsovitsDir/indexttsDir and every local spawn setting are ignored')
+    }
+    if (cfg.remoteIndexttsUrl === '' && cfg.voices.size > 0) {
+      ctx.logger.warn('gptsovits-voice: no remoteIndexttsUrl — every synthesis falls back to the remote GPT-SoVITS engine')
+    }
+    const ffmpegPath = resolveFfmpegPath(cfg.ffmpegPath)
+    const ensureIndextts = cfg.remoteIndexttsKeeperUrl === '' ? undefined : createKeeperWake(cfg.remoteIndexttsKeeperUrl)
+    ctx.effect(() => startBridge(ctx, {
+      host: cfg.host,
+      port: cfg.bridgePort,
+      gptsovitsUrl: cfg.remoteGptsovitsUrl,
+      indexttsUrl: cfg.remoteIndexttsUrl,
+      ffmpegPath,
+      defaultVoice: cfg.defaultVoice,
+      voices: cfg.voices,
+      requestTimeoutMs: cfg.requestTimeoutMs,
+      batchSize: cfg.batchSize,
+      loudnorm: cfg.loudnorm,
+      ensureIndextts,
+      log: (format, ...values) => { ctx.logger.warn(format, ...values) },
+    }), 'gptsovits-bridge')
+    return
+  }
+
   const apiRunning = await isServing(cfg.host, cfg.apiPort)
 
   if (cfg.autostartApi && !apiRunning) {
@@ -341,7 +557,15 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     const stopped = { value: false }
     ctx.effect(() => {
       const disposer = spawnApi(ctx, cfg)
-      void waitUntilResponsive(ctx, cfg, stopped)
+      void waitUntilResponsive(ctx, cfg, stopped).then((ready) => {
+        if (!ready) return
+        return warmUpApi({
+          enabled: cfg.warmup,
+          apiUrl: `http://${cfg.host}:${String(cfg.apiPort)}`,
+          voice: cfg.voices.get(cfg.defaultVoice),
+          requestTimeoutMs: cfg.requestTimeoutMs,
+        }, ctx.logger, stopped)
+      })
       return () => { stopped.value = true; disposer() }
     }, 'gptsovits-api')
   } else if (apiRunning) {

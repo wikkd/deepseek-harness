@@ -51,6 +51,8 @@ Choose it when a GPT-SoVITS checkout with trained voice weights exists on the ma
 | `autostartApi` | `true` | Spawn api_v2 on profile boot. |
 | `apiStartupTimeoutMs` | `180000` | How long to poll for api readiness before logging a timeout. |
 | `requestTimeoutMs` | `180000` | Fetch timeout for one synthesis request. |
+| `batchSize` | `8` | Maximum clauses synthesized together per GPT-SoVITS batch; `1` keeps serial synthesis. |
+| `warmup` | `true` | Synthesize one short line once a spawned api_v2 answers, so the weights load during profile boot instead of inside the first reply. |
 | `defaultVoice` | `''` | Voice used when a request names no profile or an unknown one. |
 | `voices` | `[]` | Cloned-voice profiles: name, reference wav, prompt text, prompt/text language, auxiliary reference clips. |
 | `indexttsIdleUnloadMs` | `600000` | Kill the IndexTTS service after this many idle milliseconds to free its ~5 GB; the next Chinese request respawns it (20-40 s model load). `0` keeps it loaded. |
@@ -65,7 +67,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The bridge (`src/bridge.ts`) maps the requested `voice` to a configured profile, synthesizes through GPT-SoVITS `POST /tts` (injecting the reference clip and prompt text the api_v2 contract requires), detects the synthesis language per request (kana → ja, hangul → ko, han → zh, else en), and transcodes the wav answer to mp3 — dsh-tts treats every custom-provider response as `audio/mpeg`. The lifecycle owner (`src/index.ts`) spawns `api_v2.py` when `autostartApi` is on and the port is not already served, polls for readiness, forwards its output into the dsh logger, and on profile shutdown closes the bridge first, then kills the process. When the plugin also manages IndexTTS, every Chinese synthesis first runs `ensureRunning` on the sidecar — with `autostartIndextts: false` that is a lazy start, and after `indexttsIdleUnloadMs` of silence the sidecar kills the child so the ~5 GB model returns to the OS until the next request.
+The bridge (`src/bridge.ts`) maps the requested `voice` to a configured profile, synthesizes through GPT-SoVITS `POST /tts` (injecting the reference clip and prompt text the api_v2 contract requires), detects the synthesis language per request (kana → ja, hangul → ko, han → zh, else en), and transcodes the wav answer to mp3 — dsh-tts treats every custom-provider response as `audio/mpeg`. Before synthesis the bridge sends `cut5`, so the engine splits text at punctuation; `batchSize` caps how many of those clauses run in one batch, which lowers multi-clause latency at a small VRAM cost. The lifecycle owner (`src/index.ts`) spawns `api_v2.py` when `autostartApi` is on and the port is not already served, polls for readiness, loads the weights with one short synthesis when `warmup` is on (the readiness probe answers before the model does), forwards its output into the dsh logger, and on profile shutdown closes the bridge first, then kills the process. When the plugin also manages IndexTTS, every Chinese synthesis first runs `ensureRunning` on the sidecar — with `autostartIndextts: false` that is a lazy start, and after `indexttsIdleUnloadMs` of silence the sidecar kills the child so the ~5 GB model returns to the OS until the next request.
 
 </details>
 

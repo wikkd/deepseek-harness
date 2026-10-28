@@ -56,6 +56,8 @@ export interface BridgeConfig {
   voices: Map<string, VoiceProfile>
   /** Fetch timeout for one synthesis request. */
   requestTimeoutMs: number
+  /** Maximum clauses sent in one GPT-SoVITS batch; 1 keeps serial synthesis. */
+  batchSize: number
   /** Normalize loudness to -16 LUFS so the two engines' output levels match. */
   loudnorm: boolean
   /**
@@ -144,7 +146,7 @@ function ffmpegToMp3(ffmpegPath: string, wav: Buffer, loudnorm: boolean): Promis
  * @param speed playback speed factor (clamped by the caller).
  * @returns the raw wav bytes.
  */
-async function gptsovitsTts(cfg: BridgeConfig, text: string, profile: VoiceProfile, textLang: string, speed: number): Promise<Buffer> {
+export async function gptsovitsTts(cfg: BridgeConfig, text: string, profile: VoiceProfile, textLang: string, speed: number): Promise<Buffer> {
   const res = await fetch(`${cfg.gptsovitsUrl}/tts`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -156,6 +158,7 @@ async function gptsovitsTts(cfg: BridgeConfig, text: string, profile: VoiceProfi
       prompt_lang: profile.promptLang,
       aux_ref_audio_paths: profile.auxRefAudioPaths,
       text_split_method: 'cut5',
+      batch_size: cfg.batchSize,
       speed_factor: speed,
       media_type: 'wav',
       streaming_mode: false,
