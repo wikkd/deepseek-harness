@@ -59,6 +59,10 @@ Choose it when a GPT-SoVITS checkout with trained voice weights exists on the ma
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-gptsovits-voice) is the exhaustive source for every accepted field.
 
+### Remote-engine mode
+
+Set `remoteGptsovitsUrl` to run the bridge on a machine that has no GPU checkout: the plugin then spawns nothing, forwards synthesis to the engine URLs as given (typically SSH reverse tunnels to a GPU node), and transcodes with `ffmpegPath` (empty keeps the bundled ffmpeg-static). `remoteIndexttsUrl` exposes the remote IndexTTS service to the language dispatcher; `remoteIndexttsKeeperUrl` points at the GPU node's wake service — before the first Chinese synthesis the bridge POSTs `/wake`, and the keeper starts the engine and answers once the model is resident (single-flight, 240 s budget). Idle unloading stays the keeper's job in this mode; the plugin owns no child process.
+
 -----
 
 <a id="understand-the-implementation"></a>

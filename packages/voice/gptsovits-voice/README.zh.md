@@ -59,6 +59,10 @@ kind: "package-reference"
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-gptsovits-voice)是全部受接受字段的穷尽来源。
 
+### 远端引擎模式
+
+设置 `remoteGptsovitsUrl` 即可把桥跑在没有 GPU 引擎的机器上：插件不再拉起任何本地进程，按原样把合成请求转发到引擎 URL（通常是通向 GPU 节点的 SSH 反向隧道），并用 `ffmpegPath` 转码（留空继续用内置 ffmpeg-static）。`remoteIndexttsUrl` 把远端 IndexTTS 服务交给语言分派器；`remoteIndexttsKeeperUrl` 指向 GPU 节点的唤醒服务——第一条中文合成前，桥先 POST `/wake`，keeper 拉起引擎并在模型驻留后才应答（单飞并发，240 秒预算）。该模式下空闲卸载由 keeper 负责，插件不持有任何子进程。
+
 -----
 
 <a id="understand-the-implementation"></a>
