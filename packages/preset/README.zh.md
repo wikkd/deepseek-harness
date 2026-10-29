@@ -25,6 +25,7 @@ kind: "package-group"
 | [agent-preset-registry](agent-preset-registry/README.zh.md) | 选择、代际保留和 profile 编辑 | `ctx.agentPresets` |
 | [agent-preset](agent-preset/README.zh.md) | 声明式子插件和元数据 | — |
 | [persona](persona/README.zh.md) | 可组装的 Agent 人设 | — |
+| [persona-xiaoyuan](persona-xiaoyuan/README.zh.md) | 为所有 preset 人设补上小圆身份 | — |
 
 <a id="related-documentation"></a>
 ## 相关文档

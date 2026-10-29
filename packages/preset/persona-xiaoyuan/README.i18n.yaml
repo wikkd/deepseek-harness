@@ -1,0 +1,58 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/preset/persona-xiaoyuan/README.md
+/:
+  en: e88c4af41041afec
+  zh: 604f9899df2d3196
+/deepseek-ai-dsh-persona-xiaoyuan:
+  en: a15668073096f17d
+  zh: 35725afe6d53a4b2
+/deepseek-ai-dsh-persona-xiaoyuan/summary:
+  en: 3af66d26023d8dfd
+  zh: 7cb0c7b91f653f7e
+/deepseek-ai-dsh-persona-xiaoyuan/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-persona-xiaoyuan/use-this-package:
+  en: 8b98ae799c89f67e
+  zh: 7fba977996294131
+/deepseek-ai-dsh-persona-xiaoyuan/use-this-package/when-to-use-it:
+  en: a7b341a4fc583d0b
+  zh: 65a53773c6c1e848
+/deepseek-ai-dsh-persona-xiaoyuan/understand-the-implementation:
+  en: 42b15ac6321706aa
+  zh: 4ed0861911abaf5d
+/deepseek-ai-dsh-persona-xiaoyuan/understand-the-implementation/how-the-overlay-registers:
+  en: be7fdf01e4c298b9
+  zh: e2a5cd2f081034ff
+/deepseek-ai-dsh-persona-xiaoyuan/understand-the-implementation/why-the-persona-section-is-edited-in-place:
+  en: a680d5585cd9a878
+  zh: 461c2c678bc08239
+/deepseek-ai-dsh-persona-xiaoyuan/understand-the-implementation/source-map:
+  en: 602839e3a54518e3
+  zh: 9da48d734d6caaf2
+/deepseek-ai-dsh-persona-xiaoyuan/further-exploration:
+  en: 92c01091e248e366
+  zh: 108a27f06eea0ca5
+/deepseek-ai-dsh-persona-xiaoyuan/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-persona-xiaoyuan/model-experience/the-identity-line:
+  en: 1c3ddaeeb363b39f
+  zh: 36608c72280fb1bf
+/deepseek-ai-dsh-persona-xiaoyuan/model-experience/the-identity-line/what-the-model-sees:
+  en: 1c4aa988ed84256a
+  zh: 92688dc891b2dc7f
+/deepseek-ai-dsh-persona-xiaoyuan/model-experience/the-identity-line/token-effect:
+  en: 3e2e6dfd0af27004
+  zh: 6641993cacd20254
+/deepseek-ai-dsh-persona-xiaoyuan/model-experience/the-identity-line/kv-cache-effect:
+  en: 2e94d1cf73ee2f84
+  zh: c3a514a6d91b608f
+/deepseek-ai-dsh-persona-xiaoyuan/known-limitations-and-deferred-work:
+  en: 2ff6720f09ac2e7e
+  zh: 118a037ed0041020
+/deepseek-ai-dsh-persona-xiaoyuan/known-limitations-and-deferred-work/dev-note:
+  en: 91eab50eed4c297d
+  zh: d34d243a858c2ae2

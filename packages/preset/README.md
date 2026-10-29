@@ -25,6 +25,7 @@ This group declares Agent capabilities through ordinary Cordis configuration and
 | [agent-preset-registry](agent-preset-registry/README.md) | Selection, revision retention and profile editing | `ctx.agentPresets` |
 | [agent-preset](agent-preset/README.md) | Declarative child plugins and metadata | — |
 | [persona](persona/README.md) | Composable Agent persona | — |
+| [persona-xiaoyuan](persona-xiaoyuan/README.md) | 小圆 identity overlay for every preset persona | — |
 
 <a id="related-documentation"></a>
 ## Related documentation
