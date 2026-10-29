@@ -134,6 +134,9 @@ const VENDOR_PACKAGES: ReadonlySet<string> = new Set([
   'micromark-util-sanitize-uri',
   'micromark-util-symbol',
   'micromark-util-types',
+  // The shared wire/persistence validator (one copy for the shell and every
+  // client row that imports it through the platform module table)
+  'zod',
 ])
 
 /**
