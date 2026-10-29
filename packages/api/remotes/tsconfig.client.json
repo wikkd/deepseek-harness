@@ -46,6 +46,9 @@
       "path": "../../feedback/message-feedback"
     },
     {
+      "path": "../../memory/memory-local"
+    },
+    {
       "path": "../../host/plugin-inventory"
     },
     {

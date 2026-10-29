@@ -1,0 +1,20 @@
+{
+  "unit": {
+    "name": "memory",
+    "version": 1
+  },
+  "global": {
+    "enabled": true,
+    "consented": true
+  },
+  "tables": {
+    "entries": {
+      "mem-snapshot-jasmine": {
+        "kind": "preference",
+        "text": "The user prefers jasmine tea.",
+        "createdAt": "2026-01-01T00:00:00.000Z",
+        "updatedAt": "2026-01-01T00:00:00.000Z"
+      }
+    }
+  }
+}

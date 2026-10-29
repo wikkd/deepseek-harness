@@ -1,0 +1,12 @@
+version: 1
+scenario: memory-tools
+profile: headless
+composition: memory-tools
+recording: authored
+header:
+  class: memory-tools
+  pin: true
+  changes: 2
+  promptChanges: 2
+replay:
+  override: true

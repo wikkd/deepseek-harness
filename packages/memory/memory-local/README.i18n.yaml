@@ -1,0 +1,55 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/memory/memory-local/README.md
+/:
+  en: 67dbe3f8f9199edf
+  zh: de9edd27e190931c
+/deepseek-ai-dsh-memory-local:
+  en: cc282a93d9e6fbef
+  zh: 4797f140426a0278
+/deepseek-ai-dsh-memory-local/summary:
+  en: eb098ef29bf242a4
+  zh: 8899ff03f6eabef5
+/deepseek-ai-dsh-memory-local/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-memory-local/use-this-package:
+  en: c26cd5ca32a4505c
+  zh: a320b6f53ec1be75
+/deepseek-ai-dsh-memory-local/use-this-package/first-run-and-consent:
+  en: 7c790cf12863a0ca
+  zh: cce60c8062d34495
+/deepseek-ai-dsh-memory-local/use-this-package/what-each-operation-does:
+  en: 1b914950a2de6c7c
+  zh: 540316c1c24cc518
+/deepseek-ai-dsh-memory-local/use-this-package/storage-and-remote:
+  en: cb9ec79e0e9e7b5d
+  zh: 8aa6bf4cb39982d7
+/deepseek-ai-dsh-memory-local/understand-the-implementation:
+  en: 61f054b6e36b89e6
+  zh: 7fe041f8dc28cfb2
+/deepseek-ai-dsh-memory-local/understand-the-implementation/design-choices:
+  en: 55d416a9068d6ca7
+  zh: 1314dd47595c686c
+/deepseek-ai-dsh-memory-local/understand-the-implementation/source-map:
+  en: 6fe55e5132ebcc4c
+  zh: 76a122f6eb63d277
+/deepseek-ai-dsh-memory-local/understand-the-implementation/shutdown:
+  en: d82e6593353ad6d2
+  zh: 9111950124d0dce5
+/deepseek-ai-dsh-memory-local/further-exploration:
+  en: 29d99388fa365d3c
+  zh: 489c471a27599935
+/deepseek-ai-dsh-memory-local/model-experience:
+  en: 6a37fa6f34614757
+  zh: 7a9bfaeac121051d
+/deepseek-ai-dsh-memory-local/model-experience/kv-cache-effect:
+  en: 8b401534f6340d2d
+  zh: 62c863d53f283f33
+/deepseek-ai-dsh-memory-local/known-limitations-and-deferred-work:
+  en: d8f1086a01d4d268
+  zh: d6f59c9a8da27c78
+/deepseek-ai-dsh-memory-local/known-limitations-and-deferred-work/dev-note:
+  en: f38283f63efeb7fe
+  zh: 68679094caedecdb

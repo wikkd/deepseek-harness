@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-10-22-local-long-term-memory.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-22-local-long-term-memory.md
+/agent-note-local-consent-gated-long-term-memory:
+  en: 4aace8252847acac
+  zh: a7ce122f4bc54e70
+/agent-note-local-consent-gated-long-term-memory/problem:
+  en: ec9841dbff2a6a39
+  zh: 2968a835c35b5f1e
+/agent-note-local-consent-gated-long-term-memory/decision:
+  en: 76d556ec927a6bc3
+  zh: 246ad43807c0eb0d
+/agent-note-local-consent-gated-long-term-memory/alternatives-considered:
+  en: a8a92f56fc335831
+  zh: 3a60ec021ba1e61a
+/agent-note-local-consent-gated-long-term-memory/consequences:
+  en: 423c2cfb31c57772
+  zh: a12283ab2c950eae

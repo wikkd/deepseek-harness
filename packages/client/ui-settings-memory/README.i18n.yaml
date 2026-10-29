@@ -1,0 +1,52 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/client/ui-settings-memory/README.md
+/:
+  en: 15432ce5511120d2
+  zh: 1c83f8ef2535f21e
+/deepseek-ai-dsh-client-ui-settings-memory:
+  en: eeacf3dbe076491a
+  zh: 82b3c099f6bdc59f
+/deepseek-ai-dsh-client-ui-settings-memory/summary:
+  en: ae8c381ce0b8c4e9
+  zh: 0f44b03ec3fabecc
+/deepseek-ai-dsh-client-ui-settings-memory/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-client-ui-settings-memory/use-this-package:
+  en: aea6218aa2a5989b
+  zh: 34308f4b76f935a3
+/deepseek-ai-dsh-client-ui-settings-memory/use-this-package/first-run-consent:
+  en: 9af9932b28780fa9
+  zh: 8b2cbab8f913e8b9
+/deepseek-ai-dsh-client-ui-settings-memory/use-this-package/daily-controls:
+  en: 0376389f66d193fd
+  zh: b297b69edb72be6c
+/deepseek-ai-dsh-client-ui-settings-memory/use-this-package/errors-and-busy-state:
+  en: 5a26a2043ec98988
+  zh: edf23e4db8ef6aee
+/deepseek-ai-dsh-client-ui-settings-memory/understand-the-implementation:
+  en: cb46edd2936eb72d
+  zh: 4c82ca2f8b4bff1a
+/deepseek-ai-dsh-client-ui-settings-memory/understand-the-implementation/design-choices:
+  en: 6aaf9af6d0cd31d2
+  zh: 93f4dd8516190247
+/deepseek-ai-dsh-client-ui-settings-memory/understand-the-implementation/source-map:
+  en: 278377ec27e71055
+  zh: cbffa77ff2004751
+/deepseek-ai-dsh-client-ui-settings-memory/further-exploration:
+  en: 3ffdad5bc3583541
+  zh: 047da96db43925c0
+/deepseek-ai-dsh-client-ui-settings-memory/model-experience:
+  en: a54f2505666e4c38
+  zh: f5ee3208f5c40c86
+/deepseek-ai-dsh-client-ui-settings-memory/model-experience/kv-cache-effect:
+  en: 407001c1838972b4
+  zh: 1293692368a9c14e
+/deepseek-ai-dsh-client-ui-settings-memory/known-limitations-and-deferred-work:
+  en: c054e6c8467c69df
+  zh: 46ac4adc2218e680
+/deepseek-ai-dsh-client-ui-settings-memory/known-limitations-and-deferred-work/dev-note:
+  en: fb2254ac15a7705d
+  zh: bfd94cc9b4e7999b
