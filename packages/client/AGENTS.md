@@ -73,9 +73,9 @@ Client business code may statically read `process.env.DSH_CLIENT_*`; every refer
 
 ## Shared modules and the module graph
 
-A dynamic browser half either carries a module privately or requests the shared module-table identity. The client baseline is centralized in [`web/src/platform.ts`](web/src/platform.ts): `PLATFORM_MODULES` names shell-seeded React, Cordis, and static Client libraries; `PRELOADED_CLIENT_EXTERNALS` is reserved for dynamic rows whose factories must arrive before shell boot and is empty when no such row exists.
+A dynamic browser half either carries a module privately or requests the shared module-table identity. The client baseline is centralized in [`web/src/platform.ts`](web/src/platform.ts): `PLATFORM_MODULES` names shell-seeded React, Cordis, and static Client libraries, plus the `zod` validator that every row's wire and persistence checks share; `PRELOADED_CLIENT_EXTERNALS` is reserved for dynamic rows whose factories must arrive before shell boot and is empty when no such row exists.
 
-1. **Baseline externals are implicit for every dynamic bundle.** Do not repeat React, Cordis, `client/store`, `ui-primitives`, `ui-slots`, or `ui-dockkit` in package manifests.
+1. **Baseline externals are implicit for every dynamic bundle.** Do not repeat React, Cordis, `client/store`, `ui-primitives`, `ui-slots`, `ui-dockkit`, or `zod` in package manifests.
 2. **`dsh.client.external` is not a feature-plugin dependency mechanism.** Only infrastructure, transport, or generated assembly may add a package-specific non-baseline value request whose dynamic row must be materialized through the module table. Declare the exact import specifier; only a trailing `/client` aliases the package row.
 3. **Silence means a private copy.** Ordinary third-party implementation libraries may be bundled independently. A value reached only through `import type` is erased and creates no request.
 4. **A request has two possible suppliers.** A dynamic package supplies its own row; `PLATFORM_MODULES` supplies an exact static-table key. There is no `dsh.client.provide` alias protocol.

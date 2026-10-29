@@ -766,6 +766,7 @@ function SearchResults({
   remote,
   resultLimit,
   usePanelInfo,
+  showWorkspace = true,
   t,
 }: Pick<WorkspaceBrowserProps, 'useSessions' | 'useSessionStatus' | 'open' | 't' | 'usePanelInfo'> & {
   workspaces: readonly WorkspaceView[]
@@ -777,6 +778,8 @@ function SearchResults({
   query: string
   remote: RemoteSearchState
   resultLimit: number
+  /** Render each result's Workspace context; false in conversation-only deployments. */
+  showWorkspace?: boolean
 }) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
   const list = useSessions(s => s)
@@ -813,6 +816,7 @@ function SearchResults({
               currentId={currentId}
               onOpen={open}
               onUnarchive={onUnarchive}
+              showWorkspace={showWorkspace}
               t={t}
             />
           ))}
@@ -853,6 +857,7 @@ function SearchResults({
  */
 export function WorkspaceBrowser({
   wide,
+  conversationOnly,
   usePanelInfo,
   expandSidebar,
   useSessions,
@@ -1227,7 +1232,7 @@ export function WorkspaceBrowser({
       <div className={css.sectionHeader}>
         {wide && (
           <span className={clsx(css.sectionLabel, css.wide, searchExpanded && css.sectionLabelHidden)}>
-            {groupBy === 'flat' ? t('section.sessions') : t('section.workspaces')}
+            {conversationOnly || groupBy === 'flat' ? t('section.sessions') : t('section.workspaces')}
           </span>
         )}
         {wide && (
@@ -1288,7 +1293,7 @@ export function WorkspaceBrowser({
           </div>
         )}
         <div className={clsx(css.headerActions, wide && searchExpanded && css.headerActionsHidden)}>
-          {wide && (
+          {wide && !conversationOnly && (
             <ViewOptionsMenu
               groupBy={groupBy}
               orderBy={orderBy}
@@ -1302,7 +1307,7 @@ export function WorkspaceBrowser({
           {/* Adding is the button's one action, so a composition with no
               picking affordance has nothing to offer here: the region hides the
               button rather than leaving a dead one in the header. */}
-          {directoryFlowAvailable && (
+          {!conversationOnly && directoryFlowAvailable && (
             <Tooltip label={t('workspace.add')} shortcutKeys={addShortcut?.keys} side="bottom" delayMs={500}>
               <button
                 ref={wsPlusRef}
@@ -1320,23 +1325,25 @@ export function WorkspaceBrowser({
           )}
         </div>
         {/* Add flow + its error dialog (same package — direct composition). */}
-        <WorkspacePickFlow
-          t={t}
-          open={wsPickerOpen}
-          anchorRef={wsPlusRef}
-          useWorkspaces={useWorkspaces}
-          createWorkspace={createWorkspace}
-          useDirectoryFlow={useDirectoryFlow}
-          renderDirectoryFlow={owner => renderSlot('sidebar.workspaces.directoryFlow', owner)}
-          addOnly
-          onBusyChange={setDirectoryBusy}
-          side="right"
-          onPick={(workspaceId) => {
-            closeAddWorkspace()
-            startSession(workspaceId)
-          }}
-          onClose={() => { closeAddWorkspace() }}
-        />
+        {!conversationOnly && (
+          <WorkspacePickFlow
+            t={t}
+            open={wsPickerOpen}
+            anchorRef={wsPlusRef}
+            useWorkspaces={useWorkspaces}
+            createWorkspace={createWorkspace}
+            useDirectoryFlow={useDirectoryFlow}
+            renderDirectoryFlow={owner => renderSlot('sidebar.workspaces.directoryFlow', owner)}
+            addOnly
+            onBusyChange={setDirectoryBusy}
+            side="right"
+            onPick={(workspaceId) => {
+              closeAddWorkspace()
+              startSession(workspaceId)
+            }}
+            onClose={() => { closeAddWorkspace() }}
+          />
+        )}
       </div>
 
       {/* The collapsed rail keeps search as its own 36px control. */}
@@ -1373,10 +1380,11 @@ export function WorkspaceBrowser({
               query={normalizedQuery}
               remote={remoteSearch}
               resultLimit={searchResultLimit}
+              showWorkspace={!conversationOnly}
               t={t}
             />
           )
-          : groupBy === 'flat'
+          : conversationOnly || groupBy === 'flat'
             ? (
               <FlatList
                 usePanelInfo={usePanelInfo}
@@ -1385,7 +1393,7 @@ export function WorkspaceBrowser({
                 rowState={rowState}
                 onLeaveArchivedOnly={leaveArchivedOnly}
                 workspaceReady={workspaceReady}
-                animationResetKey={`${groupBy}/${orderBy}/${archivedFilter}`}
+                animationResetKey={`${conversationOnly ? 'flat' : groupBy}/${orderBy}/${archivedFilter}`}
                 useSessionStatus={useSessionStatus}
                 open={guardedOpen}
                 onSessionRenameRequest={requestSessionRename}

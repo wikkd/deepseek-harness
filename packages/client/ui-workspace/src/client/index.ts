@@ -41,6 +41,7 @@ import {
   type RenameSessionInjected, type RowToast, type RowToastInjected, type RowToastState, type SessionRenameDialogInjected,
   type WorkspaceBrowserInjected, type WorkspacePickerInjected,
 } from './contract/slots.ts'
+import { Config, WORKSPACE_CONFIG_GLOBAL } from '../config.ts'
 import { createWorkspaceShortcutControls, installWorkspaceShortcuts } from './shortcuts.ts'
 import { UiWorkspaceService } from './navigation.ts'
 import { createWorkspaceViewStore } from './stores.ts'
@@ -100,12 +101,15 @@ export const inject = [
 /**
  * Register the browser and picker once their slot declarations are on the
  * ledger. Inject factories return plain callbacks; data reads use the
- * framework's global hooks.
+ * framework's global hooks. The client loader passes no plugin config, so the
+ * Host-projected {@link WORKSPACE_CONFIG_GLOBAL} supplies the presentation.
  * @param ctx - client root context.
  */
 export function apply(ctx: Context): void {
   const sessions = ctx.get('sessions') as ISessions
   const workspaces = ctx.get('workspaces') as IWorkspaces
+  const config = Config(Reflect.get(globalThis, WORKSPACE_CONFIG_GLOBAL) ?? {})
+  const conversationOnly = config.sidebar === 'conversations'
   // One viewing-store instance, created here as ui-layout does for its layout
   // store: the browser declares the handle, and the UiWorkspace service writes
   // view order through the same instance the renderer hands the browser.
@@ -116,7 +120,7 @@ export function apply(ctx: Context): void {
   let toastSeq = 0
   const notify = (toast: RowToast): void => { rowToast.set({ ...toast, seq: ++toastSeq }) }
   const uiWorkspace = new UiWorkspaceService(
-    ctx, ctx.remote.directoryPicker, workspaces, sessions, viewInstance.actions, notify,
+    ctx, ctx.remote.directoryPicker, workspaces, sessions, viewInstance.actions, notify, conversationOnly,
   )
   ctx.slots.provideRoot({ hooks: { workspaces: workspaces.list } })
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-workspace: dictionaries')
@@ -198,7 +202,9 @@ export function apply(ctx: Context): void {
     },
     unarchiveSession,
   })
-  installWorkspaceShortcuts(ctx, uiWorkspace, shortcutControls, archiveInjected().archiveSession)
+  installWorkspaceShortcuts(
+    ctx, uiWorkspace, shortcutControls, archiveInjected().archiveSession, !conversationOnly,
+  )
   const archiveConfirmInjected = (): SessionArchiveConfirmInjected => ({
     hooks: { archiveRequest },
     settleSessionArchive: () => { archiveRequest.set(null) },
@@ -231,6 +237,7 @@ export function apply(ctx: Context): void {
   const browserInjected = (): WorkspaceBrowserInjected => ({
     // Explicit group actions keep their target; unscoped New Session inherits
     // the current Session Workspace before the recent-Workspace fallback.
+    conversationOnly,
     startSession: (workspaceId) => { uiWorkspace.startSession(workspaceId) },
     open: openSession,
     searchSessions,
@@ -307,15 +314,17 @@ export function apply(ctx: Context): void {
       name: 'shell.overlay', id: 'workspace.row-toast', locale: NS, store: viewStore, inject: rowToastInjected,
     }, RowActionToast)
   })
-  ctx.slots.inject('conversation.hero.workspace', () => ctx.slots.register(
-    {
-      name: 'conversation.hero.workspace',
-      children: { 'conversation.hero.workspace.directoryFlow': { kind: 'single', scope: 'root' } },
-      inject: pickerInjected,
-      locale: NS,
-    },
-    WorkspacePicker,
-  ))
+  if (!conversationOnly) {
+    ctx.slots.inject('conversation.hero.workspace', () => ctx.slots.register(
+      {
+        name: 'conversation.hero.workspace',
+        children: { 'conversation.hero.workspace.directoryFlow': { kind: 'single', scope: 'root' } },
+        inject: pickerInjected,
+        locale: NS,
+      },
+      WorkspacePicker,
+    ))
+  }
 }
 
 /**

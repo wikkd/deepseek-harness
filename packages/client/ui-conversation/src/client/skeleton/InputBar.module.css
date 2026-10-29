@@ -417,6 +417,10 @@
 }
 
 .standardControls { display: flex; align-items: center; gap: 12px; min-width: 0; }
+/* The LiangShen plugin's composer lever is not part of this product's
+   composer row. Hide the third-party control by the part marker it
+   publishes; the plugin's preset and settings stay as they are. */
+.standardControls :global(button:has([data-dsh-part='lever-track'])) { display: none; }
 .tools[hidden], .standardControls[hidden] { display: none; }
 .trailingActive { flex: 1; margin-left: 0; }
 .activity { display: flex; align-items: center; flex: none; }

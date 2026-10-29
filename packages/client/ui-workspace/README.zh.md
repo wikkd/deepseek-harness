@@ -31,6 +31,10 @@ kind: "package-reference"
 
 未保存标题的历史会话显示本地化名称「未命名 / Untitled」，不使用目录名兜底。当前空会话仍显示「新会话」，其他空会话仍隐藏。重命名草稿使用已保存标题，无标题时留空；无标题行不提供标题复制。
 
+### 仅对话呈现
+
+将插件的 `sidebar` 配置设为 `conversations` 后（Host 会校验该设置并投影到浏览器页面），侧边栏只显示一个扁平的 Session 列表，不显示 Workspace 分组、Workspace 行、添加工作区控件或视图选项。搜索仍可用，结果行不显示 Workspace 标签。该呈现还会让 `conversation.hero.workspace` 保持未占用，并且不注册添加工作区快捷键。`ui-conversation` 依据 `ctx.uiWorkspace.conversationOnly` 隐藏主视觉区中的 Workspace 选择器，而隐式默认 Workspace 仍提供 Session 工作目录。默认值 `workspaces` 保留完整浏览器。
+
 ### 重排序与视图选项
 
 分组和平铺视图都先显示置顶 Session，再显示普通 Session。**最近更新**在各分区内严格按最近一次用户提示词或 steering（中途引导）时间降序排列，置顶时间不影响它。**手动排序**使用同一条完整 Session 序列中的相对位置，包括隐藏的归档项。返回最近更新会丢弃手动布局，再次进入手动排序时冻结当时的时间顺序。浏览器默认采用最近更新，并在重新加载后记住所选模式。

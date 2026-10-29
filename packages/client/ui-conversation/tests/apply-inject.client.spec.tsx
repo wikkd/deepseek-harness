@@ -38,7 +38,7 @@ function sessionFakeFor() {
   } satisfies SessionBehaviorOverrides
 }
 
-async function bench() {
+async function bench(options: { conversationOnly?: boolean } = {}) {
   const runtime = await SlotTestRuntime.create()
   const rootUpload = vi.fn(() => Promise.resolve({
     ok: true as const,
@@ -79,6 +79,7 @@ async function bench() {
   }
   const openSession = vi.fn((id: SessionId) => { replaceMain(id) })
   runtime.ctx.provide('uiWorkspace', {
+    conversationOnly: options.conversationOnly ?? false,
     openWorkspace: async (_workspaceId: WorkspaceId, beforeOpen: (id: SessionId) => void) => {
       const id = await connectWorkspace()
       replaceMain(id, beforeOpen)
@@ -195,6 +196,12 @@ describe('Conversation inject API', () => {
     expect(b.sessionFake.loadOlder).not.toHaveBeenCalled()
     expect(Object.keys(injected)).toEqual(['hooks', 'bindDraftPersistence', 'openView'])
     expect(b.viewSource(ROOT).getSnapshot()).toEqual([])
+    await b.runtime.dispose()
+  })
+
+  it('projects conversation-only Workspace navigation into the Hero picker flag', async () => {
+    const b = await bench({ conversationOnly: true })
+    expect(b.residentApi(ROOT).showWorkspacePicker).toBe(false)
     await b.runtime.dispose()
   })
 

@@ -558,6 +558,7 @@ export function ModelSelect(
                   <button type="button" className={css.retry} onClick={reload}>{t('retry')}</button>
                 </div>
               ))}
+              <div className={css.sectionLabel} aria-hidden="true">{t('menu.model')}</div>
               <div
                 ref={groupsRef}
                 id={`${id}-models`}

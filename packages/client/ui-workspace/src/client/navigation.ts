@@ -32,6 +32,8 @@ export type StartSessionOptions = DraftInitializationOptions
 
 /** Workspace archive and directory operations consumed by Client UI domains. */
 export interface UiWorkspace {
+  /** Whether this deployment hides Workspace chrome and presents one conversation list. */
+  readonly conversationOnly: boolean
   /**
    * Select a Session and show its Conversation as one UI navigation action.
    * @param target - known Session identity or durable direct-parent subagent address to display.
@@ -145,6 +147,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
    * @param sessions - pure Session Controller.
    * @param view - the browser's viewing-store write set (one instance shared with its registration).
    * @param notify - show one notice through the Workspace notice channel.
+   * @param conversationOnly - hide Workspace chrome and present one conversation list.
    */
   constructor(
     ctx: Context,
@@ -153,6 +156,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     private readonly sessions: ISessions,
     private readonly view: Pick<WorkspaceViewStoreActions, 'pinSessionOrder'>,
     private readonly notify: (toast: RowToast) => void,
+    readonly conversationOnly: boolean,
   ) {
     super(ctx, 'uiWorkspace')
     ctx.effect(() => {

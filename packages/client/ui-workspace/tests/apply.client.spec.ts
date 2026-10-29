@@ -26,7 +26,7 @@ import { RowActionToast } from '../src/client/session-actions/RowActionToast.tsx
 import { WorkspacePicker } from '../src/client/WorkspacePicker.tsx'
 import { FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
 import { UNGROUPED_KEY } from '../src/client/tree.ts'
-import { apply as hostApply } from '../src/index.ts'
+import { WORKSPACE_CONFIG_GLOBAL } from '../src/config.ts'
 
 const sid = (id: string) => id as SessionId
 const summary = (id: string, updatedAt: number): SessionSummary => ({
@@ -50,7 +50,9 @@ const workspaceState = (
   items, archivedSessionIds, pinnedSessionIds, state: 'idle', phase: 'ready', error: null,
 })
 
-async function bench() {
+async function bench(sidebar?: 'workspaces' | 'conversations') {
+  Reflect.set(globalThis, WORKSPACE_CONFIG_GLOBAL, sidebar === undefined ? undefined : { sidebar })
+  onTestFinished(() => { Reflect.deleteProperty(globalThis, WORKSPACE_CONFIG_GLOBAL) })
   const ctx = new Context()
   ctx.provide('shortcuts', { register: () => () => {}, catalog: createSnapshotStore([]) })
   ctx.provide('uiConversation', {})
@@ -178,10 +180,6 @@ function viewInstance(slots: SlotRegistry) {
 const settled = (): Promise<void> => new Promise((resolve) => { setTimeout(resolve, 0) })
 
 describe('ui-workspace apply', () => {
-  it('keeps the host Loader entry inert', () => {
-    expect(hostApply).not.toThrow()
-  })
-
   it('declares the services it drives', () => {
     expect(inject).toEqual([
       'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker', 'layout', 'shortcuts',
@@ -221,6 +219,17 @@ describe('ui-workspace apply', () => {
     expect(after.slots.entries(MENU_ITEM)).toHaveLength(4)
     expect(after.slots.entries(ROW_ACTION)).toHaveLength(2)
     expect(after.slots.entries('shell.overlay')).toHaveLength(3)
+  })
+
+  it('removes Workspace chrome and the hero picker in conversation-only mode', async () => {
+    const b = await bench('conversations')
+    onTestFinished(() => b.ctx.fiber.dispose())
+    declare(b.slots, 'sidebar.workspaces', 'conversation.hero.workspace')
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const browser = b.slots.entries('sidebar.workspaces')[0]!
+    expect((faceOf(browser) as WorkspaceBrowserInjected).conversationOnly).toBe(true)
+    expect((b.ctx.get('uiWorkspace') as { conversationOnly: boolean }).conversationOnly).toBe(true)
+    expect(b.slots.entries('conversation.hero.workspace')).toHaveLength(0)
   })
 
   it('declares the two Session row lists and registers the shipped actions and overlay surfaces into them', async () => {

@@ -62,12 +62,14 @@ export function createWorkspaceShortcutControls(): WorkspaceShortcutControls {
  * @param navigation - session creation and forking from the pointer controls' navigation service.
  * @param controls - browser-owned opening requests.
  * @param archiveSession - shared archive action, including running-work confirmation and notices.
+ * @param showWorkspaceAdd - register the add-workspace command; false in conversation-only deployments.
  */
 export function installWorkspaceShortcuts(
   ctx: Context,
   navigation: Pick<UiWorkspace, 'startSession' | 'forkSession'>,
   controls: ReturnType<typeof createWorkspaceShortcutControls>,
   archiveSession: (sessionId: SessionId) => void,
+  showWorkspaceAdd = true,
 ): void {
   const t = ctx.locale.bind('workspace')
   const current = () => Object.values(ctx.sessions.list.getSnapshot().byId)
@@ -89,11 +91,13 @@ export function installWorkspaceShortcuts(
     () => ({ status: 'handled', run: () => { navigation.startSession() } }))
   register('session.search', () => t('search.sessions.aria'), ['search sessions'], 'KeyK', ['primary'], ['primary', 'alt'],
     () => ({ status: 'handled', run: controls.search }))
-  register('workspace.add', () => t('workspace.add'), ['add workspace', 'open folder'], 'KeyO', ['primary'], ['primary', 'alt'],
-    () => {
-      const reason = addReason()
-      return reason === null ? { status: 'handled', run: controls.add } : { status: 'blocked', reason }
-    })
+  if (showWorkspaceAdd) {
+    register('workspace.add', () => t('workspace.add'), ['add workspace', 'open folder'], 'KeyO', ['primary'], ['primary', 'alt'],
+      () => {
+        const reason = addReason()
+        return reason === null ? { status: 'handled', run: controls.add } : { status: 'blocked', reason }
+      })
+  }
   register('session.rename', () => t('rename.session.title'), ['rename session'], 'KeyG', ['primary', 'alt'], ['primary', 'alt'], (context) => {
     const target = current()
     return target === undefined || target.blank || context.modal !== null || ctx.layout.panelInfo.getSnapshot().activePanelId !== null

@@ -213,6 +213,8 @@ export type DirectoryPickingHooks = PropsHooks<DirectoryPickingInjected['hooks']
  * browsing region drives.
  */
 export type WorkspaceBrowserInjected = {
+  /** Hide workspace grouping and directory actions; one flat Session list remains. */
+  conversationOnly: boolean
   hooks: DirectoryPickingInjected['hooks'] & {
     /**
      * Fixed Host facts, reached through a hook rather than injected as values:

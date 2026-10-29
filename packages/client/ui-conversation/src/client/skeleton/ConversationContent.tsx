@@ -23,7 +23,7 @@ export function ConversationContent(props: ConversationContentProps) {
   const {
     sessionId, phase, hero, useSession, useSessions, useSessionStatus,
     useWorkspaces, useInput, useComposerBlock, renderSlot, renderSlotChain,
-    selectWorkspace, t, useFactorySlot,
+    selectWorkspace, t, useFactorySlot, showWorkspacePicker,
   } = props
   const session = useSession(snapshot => snapshot)
   const Views = useFactorySlot('views', ConversationSessionView)
@@ -112,26 +112,30 @@ export function ConversationContent(props: ConversationContentProps) {
 
   const heroWorkspaceRow = (
     <div className={css.heroWorkspaceRow}>
-      <WorkspaceChip
-        buttonRef={pickerAnchor}
-        label={chipTitle}
-        menuOpen={pickerOpen}
-        onClick={() => { setPickerOpen(open => !open) }}
-        t={t}
-      />
-      {renderSlot('conversation.hero.workspace', {
-        open: pickerOpen,
-        anchorRef: pickerAnchor,
-        selectedId: pendingWorkspaceId ?? sessionWorkspace?.workspaceId,
-        onPick: (workspaceId) => {
-          setPickerOpen(false)
-          setPendingWorkspaceId(workspaceId)
-          void selectWorkspace(workspaceId).catch(() => {
-            setPendingWorkspaceId(current => current === workspaceId ? undefined : current)
-          })
-        },
-        onClose: () => { setPickerOpen(false) },
-      })}
+      {showWorkspacePicker && (
+        <>
+          <WorkspaceChip
+            buttonRef={pickerAnchor}
+            label={chipTitle}
+            menuOpen={pickerOpen}
+            onClick={() => { setPickerOpen(open => !open) }}
+            t={t}
+          />
+          {renderSlot('conversation.hero.workspace', {
+            open: pickerOpen,
+            anchorRef: pickerAnchor,
+            selectedId: pendingWorkspaceId ?? sessionWorkspace?.workspaceId,
+            onPick: (workspaceId) => {
+              setPickerOpen(false)
+              setPendingWorkspaceId(workspaceId)
+              void selectWorkspace(workspaceId).catch(() => {
+                setPendingWorkspaceId(current => current === workspaceId ? undefined : current)
+              })
+            },
+            onClose: () => { setPickerOpen(false) },
+          })}
+        </>
+      )}
       {renderSlot('conversation.hero.agentPreset', {})}
     </div>
   )

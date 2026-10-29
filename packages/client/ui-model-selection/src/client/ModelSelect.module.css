@@ -213,6 +213,15 @@
   color: var(--dsw-alias-label-caption);
 }
 
+/* Section label above the model list, naming the block the way the reference
+   card names each section. */
+.sectionLabel {
+  padding: 2px 8px 4px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
 .groups {
   min-height: 0;
   overflow-y: auto;

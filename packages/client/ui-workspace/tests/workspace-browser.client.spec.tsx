@@ -115,6 +115,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     setDirectoryBusy: controls.directoryBusy,
     requestSessionRename: controls.rename,
     dismissForkError: controls.dismissForkError,
+    conversationOnly: false,
     wide: true,
     expandSidebar: vi.fn(),
     useSessions: hook(sessionState([])),
@@ -485,6 +486,25 @@ describe('WorkspaceBrowser', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('menu')).toBeNull()
     expect(b.store.getSnapshot().groupBy).toBe('workspace')
+  })
+
+  it('shows one flat conversation list without Workspace chrome in conversation-only mode', () => {
+    createWorkspaceViewStore().create().actions.setGroupBy('workspace')
+    mount({
+      conversationOnly: true,
+      useSessions: hook(sessionState([summary('alpha-s', 2), summary('beta-s', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['alpha-s']), workspace('beta', ['beta-s'])])),
+    })
+    expect(screen.getByText('会话')).toBeTruthy()
+    expect(screen.queryByText('工作区')).toBeNull()
+    expect(screen.queryByText('alpha')).toBeNull()
+    expect(screen.queryByText('beta')).toBeNull()
+    expect(screen.queryByRole('button', { name: '视图选项' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '添加工作区' })).toBeNull()
+    const rows = screen.getAllByRole('treeitem')
+    expect(rows.map(row => row.getAttribute('aria-expanded'))).toEqual([null, null])
+    expect(screen.getByText('alpha-s')).toBeTruthy()
+    expect(screen.getByText('beta-s')).toBeTruthy()
   })
 
   it('picking 全部对话（显示已归档） keeps existing rows and reveals archived ones in place', () => {

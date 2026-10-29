@@ -23,7 +23,11 @@ const row = (id: string, main = false): SessionSummary => ({
   id: sid(id), title: id, displayTitle: id, cwd: `/workspace/${id}`, blank: false,
   running: false, updatedAt: 0, retainedBy: main ? { mainView: 1 } : {},
 })
-async function bench(runtime: 'web' | 'desktop' = 'desktop', platform: ShortcutPlatform = 'macos') {
+async function bench(
+  runtime: 'web' | 'desktop' = 'desktop',
+  platform: ShortcutPlatform = 'macos',
+  showWorkspaceAdd = true,
+) {
   const ctx = new Context()
   onTestFinished(async () => { await ctx.fiber.dispose() })
   const registry = new ShortcutRegistry(runtime, platform)
@@ -55,7 +59,7 @@ async function bench(runtime: 'web' | 'desktop' = 'desktop', platform: ShortcutP
   }
   const controls = createWorkspaceShortcutControls()
   const fiber = ctx.plugin((scoped) => {
-    installWorkspaceShortcuts(scoped, navigation, controls, (id) => { void navigation.archiveSession(id) })
+    installWorkspaceShortcuts(scoped, navigation, controls, (id) => { void navigation.archiveSession(id) }, showWorkspaceAdd)
   })
   await fiber.await()
   const select = (id: string) => { list.set({ ...list.getSnapshot(), byId: {
@@ -77,6 +81,13 @@ describe('workspace shortcut ownership', () => {
     b.controls.add()
     expect(b.controls.state.getSnapshot().addRequested).toBe(false)
   })
+  it('omits the add-workspace command when directory chrome is hidden', async () => {
+    const b = await bench('desktop', 'macos', false)
+    expect(b.registry.catalog.getSnapshot().map(row => row.id)).toEqual([
+      'session.new', 'session.search', 'session.rename', 'session.fork', 'session.archive',
+    ])
+  })
+
   it('registers six commands with Desktop and Web defaults and removes registrations with the plugin', async () => {
     const b = await bench()
     expect(b.registry.catalog.getSnapshot().map(row => row.id)).toEqual([

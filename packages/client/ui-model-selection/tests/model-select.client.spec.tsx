@@ -566,6 +566,16 @@ describe('ModelSelect keyboard walk', () => {
 })
 
 describe('ModelSelect catalog size', () => {
+  it('names the model list section above the provider groups', () => {
+    render(<ModelSelect locked={false} available
+      directory={createSnapshotStore(state({ groups: modelGroups(2), current: { provider: 'deepseek-official', model: 'model-2' } }))}
+      load={vi.fn()} select={vi.fn()} t={t} />)
+    const trigger = screen.getByRole('button', { name: /选择模型/ })
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('menuitem', { name: /^模型/ }))
+    expect(screen.getByText('模型')).toBeTruthy()
+  })
+
   it.each([0, 1, 4, 5])('shows search only above four models (%i models)', (count) => {
     const groups = modelGroups(count)
     const current = { provider: 'deepseek-official', model: count > 1 ? 'model-2' : 'deepseek-v4-flash' }

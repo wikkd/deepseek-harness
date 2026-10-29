@@ -125,6 +125,22 @@ describe('workspace browser rows', () => {
     expect(onOpen).toHaveBeenCalledWith(result.id)
   })
 
+  it('hides Workspace context in conversation-only search results', () => {
+    const result: SearchResultNode = {
+      id: sid('result'),
+      title: 'Result title',
+      workspace: 'Workspace context',
+      running: false,
+      runningSubagentCount: 0,
+      completed: false,
+      archived: false,
+      snippet: 'matching message excerpt',
+    }
+    render(<SearchResultItem result={result} currentId={undefined} onOpen={vi.fn()} onUnarchive={vi.fn()} showWorkspace={false} t={t} />)
+    expect(screen.queryByText('Workspace context')).toBeNull()
+    expect(screen.getByText('matching message excerpt')).toBeTruthy()
+  })
+
   it.each([
     ['approval', '等待审批'],
     ['plan-review', '计划待审'],

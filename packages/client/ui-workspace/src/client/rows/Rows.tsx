@@ -475,11 +475,13 @@ function SessionHoverContent({ node, now, renderSlot, t }: {
  * @param props.t - Workspace-browser translation seat.
  * @returns the result row.
  */
-export function SearchResultItem({ result, currentId, onOpen, onUnarchive, t }: {
+export function SearchResultItem({ result, currentId, onOpen, onUnarchive, showWorkspace = true, t }: {
   result: SearchResultNode
   currentId: string | undefined
   onOpen: (id: SearchResultNode['id']) => void
   onUnarchive: (id: SearchResultNode['id']) => void
+  /** Show the owning Workspace; false in conversation-only deployments. */
+  showWorkspace?: boolean
   t: RowTranslate
 }) {
   const selected = result.id === currentId
@@ -526,7 +528,9 @@ export function SearchResultItem({ result, currentId, onOpen, onUnarchive, t }: 
         )}
       </span>
       <span className={css.searchResultMeta}>
-        <span className={css.searchResultWorkspace}>{result.workspace || t('group.ungrouped')}</span>
+        {showWorkspace && (
+          <span className={css.searchResultWorkspace}>{result.workspace || t('group.ungrouped')}</span>
+        )}
         {result.snippet !== undefined && (
           <span className={css.searchResultSnippet}>{result.snippet}</span>
         )}
