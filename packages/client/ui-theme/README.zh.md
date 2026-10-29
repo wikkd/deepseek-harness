@@ -67,6 +67,8 @@ kind: "package-reference"
 
 系统提示使用 `--dsw-alias-toast-bg` 和 `--dsw-alias-toast-label`，在各调用方之间统一背景与文字颜色。文档预览配对使用 `--dsw-alias-bg-document-preview` 与 `--dsw-alias-label-document-preview`，使底色与状态文字遵循相同主题。Tooltip 键帽使用 `--dsw-alias-tooltip-key-bg`，由各主题的 tooltip 背景派生稍浅的填充。开关滑块读取 `--dsw-alias-switch-thumb`：浅色模式为纯白，深色模式为 neutral-bluish 400，使关闭态滑块比轨道更亮，同时避免纯白在暗色下过亮。
 
+`--dsw-alias-bg-opaque` 是承载"必须读得清"内容的表面——弹窗与代码面板。它在两套配色下都与次级层一致，并且在把浮层调成半透明的主题下仍保持不透明，弹窗背后的内容不会透进文字里。
+
 `--dsw-alias-label-shimmer` 为共享文字扫光提供叠加色：浅色配色使用 30% alpha 的黑色，深色配色使用 45% alpha 的白色。`--dsw-alias-label-deep-diving` 和 `--dsw-alias-label-deep-diving-shimmer` 提供蓝色活动文本和扫光颜色；深色主题使用更亮、饱和度更低的文字，并以更亮的蓝色扫光。
 
 `--dsw-alias-turn-trigger-*` token 分别定义深浅主题下轮次触发通知的常态和悬停底色。 深色提示使用更亮的交互层色，使静止卡片与文本记录背景保持区分。

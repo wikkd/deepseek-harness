@@ -506,10 +506,18 @@
   line-height: 22px;
   text-align: left;
   cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    transform 120ms var(--ds-ease-spring);
 }
 
 .panelRow:hover {
   background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.panelRow:active {
+  transform: scale(0.975);
 }
 
 .panelRow.panelActive {
@@ -527,6 +535,36 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  transition: transform 180ms var(--ds-ease-spring);
+}
+
+.panelRow:active .panelGlyph {
+  transform: scale(0.86);
+}
+
+/* The glyph lands with a short spring when the panel becomes current, so a
+   click reads as a switch rather than a paint. */
+.panelRow.panelActive .panelGlyph {
+  animation: panelGlyphIn 260ms var(--ds-ease-spring);
+}
+
+@keyframes panelGlyphIn {
+  0% { transform: scale(0.82); }
+  62% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panelRow,
+  .panelGlyph {
+    transition: none;
+    animation: none;
+  }
+
+  .panelRow:active,
+  .panelRow:active .panelGlyph {
+    transform: none;
+  }
 }
 
 .panelTitle {

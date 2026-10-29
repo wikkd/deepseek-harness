@@ -68,6 +68,7 @@ export function PetRow({ useSettings, setField, resetPosition, t }: PetRowProps)
         <div className={css.field}>
           <span className={css.label}>{t('pet.size')}</span>
           <SegmentedControl
+            className={css.segmented}
             id='live2d-pet-size' label={t('pet.size')}
             value={nearestKey(SIZE_PRESETS, settings.height)}
             options={[
@@ -81,6 +82,7 @@ export function PetRow({ useSettings, setField, resetPosition, t }: PetRowProps)
         <div className={css.field}>
           <span className={css.label}>{t('pet.opacity')}</span>
           <SegmentedControl
+            className={css.segmented}
             id='live2d-pet-opacity' label={t('pet.opacity')}
             value={nearestKey(OPACITY_PRESETS, settings.opacity)}
             options={[
@@ -94,6 +96,7 @@ export function PetRow({ useSettings, setField, resetPosition, t }: PetRowProps)
         <div className={css.field}>
           <span className={css.label}>{t('pet.anchor')}</span>
           <SegmentedControl
+            className={css.segmented}
             id='live2d-pet-anchor' label={t('pet.anchor')}
             value={settings.anchor}
             options={[
@@ -106,6 +109,7 @@ export function PetRow({ useSettings, setField, resetPosition, t }: PetRowProps)
         <div className={css.field}>
           <span className={css.label}>{t('pet.rate')}</span>
           <SegmentedControl
+            className={css.segmented}
             id='live2d-pet-rate' label={t('pet.rate')}
             value={settings.motionRate}
             options={[
@@ -119,6 +123,7 @@ export function PetRow({ useSettings, setField, resetPosition, t }: PetRowProps)
         <div className={css.field}>
           <span className={css.label}>{t('pet.lipSync')}</span>
           <SegmentedControl
+            className={css.segmented}
             id='live2d-pet-lipsync' label={t('pet.lipSync')}
             value={settings.lipSync ? 'on' : 'off'}
             options={[
@@ -131,6 +136,7 @@ export function PetRow({ useSettings, setField, resetPosition, t }: PetRowProps)
         <div className={css.field}>
           <span className={css.label}>{t('pet.emotion')}</span>
           <SegmentedControl
+            className={css.segmented}
             id='live2d-pet-emotion' label={t('pet.emotion')}
             value={settings.emotionExpressions ? 'on' : 'off'}
             options={[
@@ -142,7 +148,7 @@ export function PetRow({ useSettings, setField, resetPosition, t }: PetRowProps)
         </div>
         <div className={css.field}>
           <span className={css.label}>{t('pet.resetPosition')}</span>
-          <Button size='sm' variant='outline' onClick={resetPosition}>
+          <Button className={css.resetButton} size='sm' variant='outline' onClick={resetPosition}>
             {t('pet.resetPosition')}
           </Button>
         </div>

@@ -2,8 +2,8 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 16px;
-  padding: 16px 0;
+  gap: 14px;
+  padding: 4px 0 18px;
 }
 
 .head {
@@ -11,30 +11,55 @@
   align-items: center;
   justify-content: space-between;
   gap: 24px;
+  padding: 14px 16px;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-lg);
+  background: var(--dsw-alias-bg-layer-1);
 }
 
 .controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 32px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(172px, 1fr));
+  gap: 10px;
 }
 
 .field {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+  padding: 11px 12px 12px;
+  box-sizing: border-box;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease;
+}
+
+.field:hover {
+  border-color: color-mix(in srgb, var(--dsw-alias-border-l1), var(--dsw-alias-label-primary) 10%);
+}
+
+.field:last-child {
+  justify-content: space-between;
 }
 
 .label {
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
   line-height: 18px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
   white-space: nowrap;
 }
 
 .title {
   font-size: 14px;
   line-height: 20px;
+  font-weight: 500;
 }
 
 .description {
@@ -42,4 +67,26 @@
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
   line-height: 18px;
+}
+
+.segmented {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+}
+
+/* The settings cards are narrower than the primitive's default segment, so
+   trim only the horizontal padding; the indicator geometry stays untouched. */
+.segmented :global([role='tab']) {
+  padding: 0 8px;
+}
+
+.resetButton {
+  width: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .field {
+    transition: none;
+  }
 }

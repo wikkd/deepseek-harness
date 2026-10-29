@@ -29,7 +29,9 @@
   animation: modalEnter var(--ds-transition-duration) var(--ds-ease-out);
 }
 
-/* Dialogs use the prominent elevation on the secondary layer. */
+/* Dialogs use the prominent elevation and an opaque surface: a theme may tint
+   its floating layers translucently, but the dialog's own content must stay
+   readable over whatever sits behind it. */
 .dialog {
   box-sizing: border-box;
   position: relative;
@@ -42,7 +44,7 @@
   overflow: hidden;
   border: 0;
   border-radius: var(--dsw-radius-panel);
-  background: var(--dsw-alias-bg-layer-2);
+  background: var(--dsw-alias-bg-opaque);
   box-shadow: var(--dsw-elevation-prominent);
   animation: dialogEnter var(--ds-transition-duration-slow) var(--ds-ease-out);
 }

@@ -92,7 +92,7 @@ export const en: Record<AgentPresetSettingsKey, string> = {
 export const zh: Record<AgentPresetSettingsKey, string> = {
   ...guideZh,
   builtInGroup: '内置', customGroup: '自定义',
-  sectionIntro: '选择小圆的工作方式：日常事务用「办公模式」，写代码用「梁神模式」，画画和创意用「创意模式」。',
+  sectionIntro: '选择小圆的工作方式：日常事务用「办公模式」，写代码用「coding模式」，画画和创意用「创意模式」。',
 
   seatHint: '选择新任务使用的 Agent 预设',
   headerHint: '本任务的 Agent 预设，在任务开始时确定',

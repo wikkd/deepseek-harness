@@ -47,18 +47,23 @@
 .panel :global([data-dockkit-empty]),
 .panel :global([data-dockkit-divider]) {
   transform: translateX(var(--dsh-sidebar-width));
+  opacity: 0;
   visibility: hidden;
   transition:
-    transform var(--ds-transition-duration-slow) var(--ds-ease-in-out),
-    visibility 0s linear var(--ds-transition-duration-slow);
+    transform 240ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 150ms ease,
+    visibility 0s linear 240ms;
 }
 
 .panel[data-sidebar-right-open] :global([data-dockkit-host='dock']),
 .panel[data-sidebar-right-open] :global([data-dockkit-empty]),
 .panel[data-sidebar-right-open] :global([data-dockkit-divider]) {
   transform: none;
+  opacity: 1;
   visibility: visible;
-  transition: transform var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+  transition:
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms ease 30ms;
 }
 
 .panel[data-sidebar-right-panel='fullscreen'] {
@@ -132,6 +137,10 @@
   border: none;
   border-radius: var(--dsw-radius-sm);
   cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    transform 120ms var(--ds-ease-spring);
 }
 
 .iconButton svg {
@@ -141,11 +150,36 @@
 
 .iconButton:hover {
   background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.iconButton:active {
+  transform: scale(0.86);
 }
 
 /* The expand button's glyph, so collapse and expand share one affordance. */
 .collapseGlyph {
   transform: scaleX(-1);
+  transition: transform 140ms var(--ds-ease-spring);
+}
+
+.iconButton:active .collapseGlyph {
+  transform: scaleX(-1) scale(0.88);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .iconButton,
+  .collapseGlyph {
+    transition: none;
+  }
+
+  .iconButton:active {
+    transform: none;
+  }
+
+  .iconButton:active .collapseGlyph {
+    transform: scaleX(-1);
+  }
 }
 
 .panelBody {

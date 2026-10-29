@@ -324,7 +324,8 @@
   width: min(720px, 100%);
 }
 
-/* A declared composition can be long; the dialog scrolls it rather than grow. */
+/* A declared composition can be long; the dialog scrolls it rather than grow.
+   The panel stays opaque so the composition is readable over the dialog. */
 .viewerCode {
   margin: 0;
   padding: 12px;
@@ -332,7 +333,7 @@
   overflow: auto;
   border: 0.5px solid var(--dsw-alias-border-l4);
   border-radius: var(--dsw-radius-lg);
-  background: var(--dsw-alias-bg-layer-2);
+  background: var(--dsw-alias-bg-opaque);
   color: var(--dsw-alias-label-secondary);
   font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 12.5px;
