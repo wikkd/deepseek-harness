@@ -1511,6 +1511,71 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'memory',
+    summary: 'Host-side memory contract.',
+    description: 'Host-side memory contract. Reads are synchronous from the active provider; every mutation is durable before its promise settles.',
+    methods: [
+      {
+        signature: 'readonly enabled: boolean',
+        description: 'Whether the user has enabled memory.',
+        parameters: [],
+      },
+      {
+        signature: 'readonly consented: boolean',
+        description: 'Whether the user has explicitly consented to memory storage.',
+        parameters: [],
+      },
+      {
+        signature: 'list(): readonly MemoryEntry[]',
+        description: 'Read every entry in most-recently-updated order.',
+        parameters: [],
+        returns: 'every stored entry, newest first.',
+      },
+      {
+        signature: 'snapshot(): MemorySnapshot',
+        description: 'Read settings and entries as one consistent snapshot.',
+        parameters: [],
+        returns: 'the current availability, consent, and entries.',
+      },
+      {
+        signature: 'setEnabled(enabled: boolean): Promise<MemorySnapshot>',
+        description: 'Enable or disable model-visible memory. Enabling requires prior consent.',
+        parameters: [{ name: 'enabled', description: 'desired availability.' }],
+        returns: 'the durable snapshot after the change.',
+      },
+      {
+        signature: 'setConsent(consented: boolean): Promise<MemorySnapshot>',
+        description: 'Record or withdraw consent. Withdrawing consent also disables memory.',
+        parameters: [{ name: 'consented', description: 'whether the user agrees to local memory storage.' }],
+        returns: 'the durable snapshot after the change.',
+      },
+      {
+        signature: 'save(input: MemorySaveInput): Promise<MemoryEntry>',
+        description: 'Save a new entry, or refresh the kind and timestamp of an exact duplicate.',
+        parameters: [{ name: 'input', description: 'trimmed text and its durable category.' }],
+        returns: 'the stored entry.',
+      },
+      {
+        signature: 'update(id: MemoryId, text: string): Promise<MemoryEntry>',
+        description: 'Replace one entry\'s text while preserving its identity and creation time.',
+        parameters: [{ name: 'id', description: 'entry to edit.' }, { name: 'text', description: 'replacement text, trimmed before validation.' }],
+        returns: 'the stored entry.',
+      },
+      {
+        signature: 'forget(id: MemoryId): Promise<boolean>',
+        description: 'Delete one entry. Deleting an absent entry is an idempotent miss.',
+        parameters: [{ name: 'id', description: 'entry to delete.' }],
+        returns: 'whether the entry existed.',
+      },
+      {
+        signature: 'clear(): Promise<MemorySnapshot>',
+        description: 'Delete every entry without changing consent or availability.',
+        parameters: [],
+        returns: 'the empty durable snapshot.',
+      },
+    ],
+  },
+  {
     key: 'messageFeedback',
     summary: 'Session-log service; cold operations never construct a Session or Agent.',
     description: 'Session-log service; cold operations never construct a Session or Agent.',
@@ -4153,6 +4218,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'options', description: 'the full request. A LOOP-built request carries the process-local {@link markAgentLoopRequest} identity and arrives deep-frozen (mutation throws): its content is a pure function of the session log (the reconstructability Agent Note), so listeners read it, never rewrite it. Hand-built calls do not carry that marker; callers own their request inputs and must keep them unchanged until the stream settles.' }],
   },
   {
+    name: 'memory/settings-changed',
+    mode: 'emit',
+    signature: '\'memory/settings-changed\'(settings: MemorySettings): void',
+    summary: 'Memory availability changed, so model-visible tools and prompt sections must be added or withdrawn without restarting the application.',
+    description: 'Memory availability changed, so model-visible tools and prompt sections must be added or withdrawn without restarting the application.',
+    parameters: [{ name: 'settings', description: 'the durable settings after the change.' }],
+  },
+  {
     name: 'permission-presets/catalog-changed',
     mode: 'emit',
     signature: '\'permission-presets/catalog-changed\'(): void',
@@ -5779,6 +5852,30 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'McpResourceRequest',
     declaration: 'export type McpResourceRequest = {\n    method: \'resources/list\' | \'resources/templates/list\';\n    cursor?: string;\n} | {\n    method: \'resources/read\';\n    uri: string;\n};',
+  },
+  {
+    name: 'MemoryEntry',
+    declaration: 'export interface MemoryEntry {\n    readonly id: MemoryId;\n    readonly kind: MemoryKind;\n    readonly text: string;\n    readonly createdAt: string;\n    readonly updatedAt: string;\n}',
+  },
+  {
+    name: 'MemoryId',
+    declaration: 'export type MemoryId = Branded<\'MemoryId\'>;',
+  },
+  {
+    name: 'MemoryKind',
+    declaration: 'export type MemoryKind = \'user\' | \'preference\' | \'fact\';',
+  },
+  {
+    name: 'MemorySaveInput',
+    declaration: 'export interface MemorySaveInput {\n    readonly text: string;\n    readonly kind: MemoryKind;\n}',
+  },
+  {
+    name: 'MemorySettings',
+    declaration: 'export interface MemorySettings {\n    readonly enabled: boolean;\n    readonly consented: boolean;\n}',
+  },
+  {
+    name: 'MemorySnapshot',
+    declaration: 'export interface MemorySnapshot extends MemorySettings {\n    readonly entries: readonly MemoryEntry[];\n}',
   },
   {
     name: 'Message',

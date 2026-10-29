@@ -157,6 +157,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Connection-owned providers serve shared resource tools in the calling agent scope.',
   },
   {
+    key: 'memory',
+    pkg: 'memory',
+    title: 'Durable long-term memory',
+    mode: 'seam',
+    implementations: ['memory-local'],
+    consumers: ['tool-memory'],
+    note: 'The local provider owns consent, bounds, and JSON persistence; the tool package adds explicit save, search, forget, and the bounded prompt section while memory is enabled.',
+  },
+  {
     key: 'browserUse',
     pkg: 'browser-use',
     title: 'Browser-use provider registration',

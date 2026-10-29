@@ -57,6 +57,8 @@ import * as ToolSchedule from '@deepseek-ai/dsh-tool-schedule'
 import type ScheduleService from '@deepseek-ai/dsh-schedule'
 import Lsp from '@deepseek-ai/dsh-lsp'
 import * as ToolLsp from '@deepseek-ai/dsh-tool-lsp'
+import * as ToolMemory from '@deepseek-ai/dsh-tool-memory'
+import type { MemoryService } from '@deepseek-ai/dsh-memory'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import * as ToolSessionQuery from '@deepseek-ai/dsh-tool-session-query'
 import * as ToolJobs from '@deepseek-ai/dsh-tool-jobs'
@@ -459,6 +461,33 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'The lsp tool keeps provider selection and language-server subprocesses behind ctx.lsp, so its model-visible schema stays stable across providers. Requires a registered provider (e.g. `@deepseek-ai/dsh-lsp-stdio`) at runtime; without one, a query returns the structured `LSP_UNAVAILABLE` error rather than changing the schema.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-memory',
+    dir: 'tool-memory',
+    source: 'packages/memory/tool-memory/src/index.ts',
+    requires: ['ctx.tools', 'ctx.memory', 'ctx.systemPrompt'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      // The deployed surface is consent-gated; catalog the schemas from an
+      // enabled, consented service with no entries.
+      const memory: MemoryService = {
+        enabled: true,
+        consented: true,
+        list: () => [],
+        snapshot: () => ({ enabled: true, consented: true, entries: [] }),
+        setEnabled: () => Promise.reject(new Error('gen-tool-catalog: memory mutation is unreachable during schema harvest')),
+        setConsent: () => Promise.reject(new Error('gen-tool-catalog: memory mutation is unreachable during schema harvest')),
+        save: () => Promise.reject(new Error('gen-tool-catalog: memory mutation is unreachable during schema harvest')),
+        update: () => Promise.reject(new Error('gen-tool-catalog: memory mutation is unreachable during schema harvest')),
+        forget: () => Promise.reject(new Error('gen-tool-catalog: memory mutation is unreachable during schema harvest')),
+        clear: () => Promise.reject(new Error('gen-tool-catalog: memory mutation is unreachable during schema harvest')),
+      }
+      ctx.provide('memory', memory)
+      await ctx.plugin(ToolMemory)
+    },
+    note:
+      'The three tools and the bounded background-facts prompt section exist only while the user has enabled memory and recorded consent. The deployed provider adds and withdraws the whole surface on memory/settings-changed; this harvest mounts an enabled empty service so the schemas stay catalogued.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-ralph',

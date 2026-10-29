@@ -77,6 +77,9 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
 
   'packages/attachment/attachment': { kind: 'indirect', reason: 'The storage seam delegates model request rendering to provider adapters.' },
   'packages/attachment/attachment-local': { kind: 'indirect', reason: 'The local backend delegates model request rendering to provider adapters.' },
+  'packages/memory/memory': { kind: 'none', reason: 'The contract declares types and a service seam; the provider and tool packages own persistence and every model-facing contribution.' },
+  'packages/memory/memory-local': { kind: 'indirect', reason: 'The provider stores entries and settings; dsh-tool-memory renders the prompt section and tools.' },
+  'packages/client/ui-settings-memory': { kind: 'none', reason: 'Browser-side consent, toggle, and entry management; the Host provider and tool plugin own every model-visible effect.' },
   'packages/client/ui-jobs': { kind: 'none', reason: 'Browser-side presentation of host-observed output; touches no prompt, message, schema, stream, or tool result.' },
   'packages/shell/shell': { kind: 'indirect', reason: 'The service interface delegates all model rendering to dsh-tool-bash.' },
   'packages/shell/shell-env': { kind: 'indirect', reason: 'The env service exposes managed DSH_* facts through the shell tools (dsh-tool-bash/dsh-tool-pwsh); it registers no prompt or schema of its own.' },
