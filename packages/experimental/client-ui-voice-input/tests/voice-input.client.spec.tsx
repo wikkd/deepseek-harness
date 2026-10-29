@@ -2,7 +2,7 @@
 /** Click capture preserves draft edits and Session ownership without composer banners. */
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { bindSnapshotSelector, makeTranslate, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
+import { bindSnapshotSelector, makeTranslate, RemoteError, sessionSnapshot } from '@deepseek-ai/dsh-client-test-runtime'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -20,7 +20,7 @@ const id = 'sensevoice-local' as SpeechProviderId
 const transcript: Transcript = { text: '检查 TypeScript 类型', audioSeconds: 2, inferenceSeconds: 0.4 }
 function fixture(recording?: Recording) {
   const capture = Object.assign(new Recording(() => {}), { start: vi.fn<Recording['start']>(async () => {}), stop: vi.fn(async () => new Uint8Array(48)),
-    amplitude: () => 0, dispose: vi.fn(async () => {}) })
+    amplitude: vi.fn(() => 0), dispose: vi.fn(async () => {}) })
   const inputActions = { notify: vi.fn(), captureInsertion: vi.fn(() => ({ start: 3, end: 3, draftRev: 1 })), insertText: vi.fn(() => true),
     setDraft: vi.fn(), persistDraft: vi.fn(), addAttachments: vi.fn(() => true), removeAttachment: vi.fn(),
     pruneAttachments: vi.fn(), submit: vi.fn() }
@@ -28,18 +28,24 @@ function fixture(recording?: Recording) {
     providers: [{ id, name: 'SenseVoiceSmall', location: 'host-local', languages: ['auto', 'zh', 'en', 'ja'], preparation: { phase: 'ready' } }],
     selection: { providerId: id, language: 'auto' }, maxAudioBytes: 100, maxDurationSeconds: 120,
   } })
+  const session = createSnapshotStore(sessionSnapshot('one' as SessionId))
   const transcribe = vi.fn<(request: unknown, signal: AbortSignal) => Promise<RemoteResult<Transcript>>>(
     async () => ({ ok: true, value: transcript }))
   const props: VoiceInputProps = { sessionId: 'one' as SessionId, inputActions, transcribe, locked: false, onActiveChange: vi.fn(),
+    useSession: bindSnapshotSelector(session),
     openSettings: vi.fn(), prepare: vi.fn(async () => {}), cancelPreparation: vi.fn(async () => {}), configure: vi.fn(async () => {}),
     useSpeechReadiness: bindSnapshotSelector(readiness), createRecording: () => recording ?? capture,
     t: makeTranslate(zh, commonZh) }
   const view = render(<VoiceInput {...props} />)
-  return { props, capture, inputActions, readiness, transcribe, view }
+  return { props, capture, inputActions, readiness, session, transcribe, view }
 }
 async function start(): Promise<void> {
   fireEvent.click(screen.getByRole('button', { name: zh.start }))
   await screen.findByRole('button', { name: zh.stop })
+}
+async function startContinuous(): Promise<void> {
+  fireEvent.click(screen.getByRole('button', { name: zh['continuous.start'] }))
+  await screen.findByRole('button', { name: zh['continuous.stopUtterance'] })
 }
 function stop(): void { fireEvent.click(screen.getByRole('button', { name: zh.stop })) }
 
@@ -186,6 +192,153 @@ it('rejects excessive audio and keeps locked recognition disabled', async () => 
   fireEvent.click(locked)
   expect(screen.queryByRole('dialog')).toBeNull()
   expect(b.capture.start).toHaveBeenCalledOnce()
+})
+
+it('auto-sends after silence and waits for the reply before listening again', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+  const b = fixture(), microphone = screen.getByRole('button', { name: zh['continuous.start'] })
+  let level = 0
+  b.capture.amplitude = vi.fn(() => level)
+  fireEvent.click(microphone)
+  await act(async () => {})
+  expect(b.capture.start).toHaveBeenCalledOnce()
+  expect(b.props.onActiveChange).toHaveBeenLastCalledWith(true)
+  level = 1
+  await act(async () => { await vi.advanceTimersByTimeAsync(400) })
+  expect(b.inputActions.submit).not.toHaveBeenCalled()
+  level = 0
+  await act(async () => { await vi.advanceTimersByTimeAsync(1300) })
+  await act(async () => {})
+  expect(b.transcribe).toHaveBeenCalledOnce()
+  expect(b.inputActions.insertText).toHaveBeenCalledWith(transcript.text, { start: 3, end: 3, draftRev: 1 })
+  expect(b.inputActions.submit).toHaveBeenCalledOnce()
+  expect(screen.getByRole('status').textContent).toBe(zh['continuous.waiting'])
+  act(() => { b.session.set({ ...b.session.getSnapshot(), running: true }) })
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+  expect(b.capture.start).toHaveBeenCalledOnce()
+  act(() => { b.session.set({ ...b.session.getSnapshot(), running: false }) })
+  await act(async () => { await vi.advanceTimersByTimeAsync(700) })
+  expect(b.capture.start).toHaveBeenCalledTimes(2)
+  expect(screen.getByRole('img', { name: zh['continuous.listening'] })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: zh.cancel }))
+  expect(b.capture.dispose).toHaveBeenCalled()
+})
+
+it('stops speech synthesis on speech onset and leaves commands for manual review', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+  const b = fixture(), speaking = vi.fn()
+  window.addEventListener('dsh-voice:speaking', speaking)
+  try {
+    b.capture.amplitude = vi.fn(() => 1)
+    b.transcribe.mockResolvedValueOnce({ ok: true, value: { ...transcript, text: '/help' } })
+    fireEvent.click(screen.getByRole('button', { name: zh['continuous.start'] }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(250) })
+    expect(speaking).toHaveBeenCalledOnce()
+    expect((speaking.mock.calls[0]![0] as CustomEvent).detail).toEqual({ phase: 'start' })
+    fireEvent.click(screen.getByRole('button', { name: zh['continuous.stopUtterance'] }))
+    await act(async () => {})
+    expect(b.inputActions.insertText).toHaveBeenCalledWith('/help', expect.anything())
+    expect(b.inputActions.submit).not.toHaveBeenCalled()
+    expect(screen.getByRole('status').textContent).toBe(zh['continuous.command'])
+  } finally { window.removeEventListener('dsh-voice:speaking', speaking) }
+})
+
+it('stops continuous listening when the composer locks', async () => {
+  const b = fixture(); await startContinuous()
+  b.view.rerender(<VoiceInput {...b.props} locked />)
+  await act(async () => {})
+  expect(b.capture.dispose).toHaveBeenCalledOnce()
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: zh.start }).disabled).toBe(true)
+})
+
+it('stops continuous listening when the agent starts running and blocks restart', async () => {
+  const b = fixture(); await startContinuous()
+  act(() => { b.session.set({ ...b.session.getSnapshot(), running: true }) })
+  await act(async () => {})
+  expect(b.capture.dispose).toHaveBeenCalledOnce()
+  expect(b.transcribe).not.toHaveBeenCalled()
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: zh['continuous.start'] }).disabled).toBe(true)
+})
+
+it('offers setup from the continuous trigger and suppresses its focus shift', () => {
+  const b = fixture()
+  act(() => { b.readiness.set({ catalog: null, connected: false, error: null }) })
+  const trigger = screen.getByRole('button', { name: zh['continuous.start'] })
+  fireEvent.mouseDown(trigger)
+  fireEvent.click(trigger)
+  expect(screen.getByRole('dialog').textContent).toContain(zh['setupPrompt.unavailableTitle'])
+  expect(b.capture.start).not.toHaveBeenCalled()
+  expect(b.inputActions.submit).not.toHaveBeenCalled()
+})
+
+it.each(['callback', 'rejection'])('ends continuous mode when capture fails (%s)', async (how) => {
+  const b = fixture()
+  if (how === 'callback') b.capture.start.mockImplementationOnce(async (failed) => { failed!(new RecordingError('interrupted')) })
+  else b.capture.start.mockRejectedValueOnce(new Error('device lost'))
+  fireEvent.click(screen.getByRole('button', { name: zh['continuous.start'] }))
+  await act(async () => {})
+  expect(screen.getByRole('status').textContent).toBe(how === 'callback' ? zh.interrupted : '语音识别失败：device lost')
+  expect(screen.queryByRole('button', { name: zh['continuous.stopUtterance'] })).toBeNull()
+  expect(b.inputActions.submit).not.toHaveBeenCalled()
+})
+
+it('resets an utterance shorter than the minimum and keeps listening', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+  const b = fixture()
+  let level = 1
+  b.capture.amplitude = vi.fn(() => level)
+  fireEvent.click(screen.getByRole('button', { name: zh['continuous.start'] }))
+  await act(async () => { await vi.advanceTimersByTimeAsync(200) })
+  level = 0
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+  expect(b.transcribe).not.toHaveBeenCalled()
+  expect(screen.getByRole('button', { name: zh['continuous.stopUtterance'] })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: zh.cancel }))
+  expect(b.capture.dispose).toHaveBeenCalled()
+})
+
+it('shows recognition progress before continuous auto-send completes', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+  const b = fixture(), result = Promise.withResolvers<RemoteResult<Transcript>>()
+  let level = 1
+  b.transcribe.mockReturnValueOnce(result.promise)
+  b.capture.amplitude = vi.fn(() => level)
+  fireEvent.click(screen.getByRole('button', { name: zh['continuous.start'] }))
+  await act(async () => { await vi.advanceTimersByTimeAsync(400) })
+  level = 0
+  await act(async () => { await vi.advanceTimersByTimeAsync(1300) })
+  expect(screen.getByRole('status').textContent).toBe(zh.transcribingShort)
+  result.resolve({ ok: true, value: transcript })
+  await act(async () => {})
+  expect(b.inputActions.submit).toHaveBeenCalledOnce()
+})
+
+it('drops a queued listening poll after the user cancels', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+  const b = fixture()
+  b.capture.amplitude = vi.fn(() => {
+    fireEvent.click(screen.getByRole('button', { name: zh.cancel }))
+    return 1
+  })
+  fireEvent.click(screen.getByRole('button', { name: zh['continuous.start'] }))
+  await act(async () => { await vi.advanceTimersByTimeAsync(100) })
+  await act(async () => { await vi.advanceTimersByTimeAsync(200) })
+  expect(b.transcribe).not.toHaveBeenCalled()
+  expect(b.capture.dispose).toHaveBeenCalledOnce()
+})
+
+it.each(['blur', 'hidden', 'escape'])('stops continuous mode on %s without transcribing', async (how) => {
+  const b = fixture(); await startContinuous()
+  if (how === 'blur') fireEvent.blur(window)
+  if (how === 'escape') fireEvent.keyDown(document, { key: 'Escape' })
+  if (how === 'hidden') {
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true })
+    try { fireEvent(document, new Event('visibilitychange')) } finally { delete (document as { hidden?: boolean }).hidden }
+  }
+  await act(async () => {})
+  expect(b.capture.dispose).toHaveBeenCalledOnce()
+  expect(b.transcribe).not.toHaveBeenCalled()
+  expect(screen.getByRole('button', { name: zh.start })).toBeTruthy()
 })
 
 it('releases expansion and contains cleanup failures on unmount', async () => {

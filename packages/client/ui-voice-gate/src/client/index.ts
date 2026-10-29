@@ -223,12 +223,17 @@ export class VoiceGate {
   }
 
   /**
-   * Consume one settled dsh-tts item: an utterance or a failure releases the
-   * holds its text (or the failure's fallback) covers.
+   * Consume one settled dsh-tts item. An utterance releases the holds its
+   * text covers; a synthesis failure releases every hold immediately because
+   * no audio will arrive for this reply.
    * @param item - parsed wire item.
    */
   private accept(item: TtsItem | null): void {
     if (item === null) return
+    if (isText(item.error)) {
+      this.releaseAll()
+      return
+    }
     if (isText(item.text)) {
       const key = scrubLikeTts(item.text)
       this.spoken.push(key)
@@ -287,8 +292,9 @@ export class VoiceGate {
 
   /**
    * Reconcile the DOM with the hold set: arm holds on streaming prose while
-   * dsh-tts speaks, and release holds that no longer qualify — the stream
-   * ended, the toggle went off, or the text already played.
+   * dsh-tts speaks, keep a hold after the stream settles (the reply is still
+   * waiting for its audio), and release holds that no longer qualify — the
+   * root left the document, the toggle went off, or the text already played.
    * @param doc - document to scan.
    */
   private scan(doc: Document): void {
@@ -297,14 +303,16 @@ export class VoiceGate {
       return
     }
     const roots = doc.querySelectorAll<HTMLElement>('div[data-streaming]')
-    const seen = new Set<HTMLElement>()
     for (const root of roots) {
       if (!this.streamsProse(root)) continue
-      seen.add(root)
       if (!this.holds.has(root)) this.hold(root)
     }
-    for (const [root, hold] of this.holds) {
-      if (!seen.has(root)) this.release(root, hold)
+    // Settling removes `data-streaming` but not the reply element: the hold
+    // must survive that marker change or the full answer appears seconds
+    // before its first sentence is spoken. Only a detached or emptied root
+    // leaves the hold set here.
+    for (const [root, hold] of [...this.holds]) {
+      if (!root.isConnected || root.textContent.trim() === '') this.release(root, hold)
     }
     // An utterance that arrived while its paragraph was still streaming is
     // already in `spoken`; re-check so a race between the two signals settles.

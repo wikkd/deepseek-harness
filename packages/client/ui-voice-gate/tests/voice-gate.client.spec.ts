@@ -156,6 +156,31 @@ describe('voice gate', () => {
     expect(root.hasAttribute('data-voice-gate-hold')).toBe(false)
   })
 
+  it('keeps holding a settled paragraph through later DOM mutations', async () => {
+    await armedGate()
+    const root = prose('先写完了。')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(root.hasAttribute('data-voice-gate-hold')).toBe(true)
+    root.removeAttribute('data-streaming')
+    // The settled Markdown swap mutates the held subtree: that scan must not
+    // mistake the missing streaming marker for spoken text.
+    root.querySelector('p')!.textContent = '先写完了。'
+    await vi.advanceTimersByTimeAsync(0)
+    expect(root.hasAttribute('data-voice-gate-hold')).toBe(true)
+    FakeEventSource.last!.emit('utterance', { id: 'u22', text: '先写完了。' })
+    expect(root.hasAttribute('data-voice-gate-hold')).toBe(false)
+  })
+
+  it('releases every hold when synthesis reports an error', async () => {
+    const gate = await armedGate()
+    const root = prose('合成失败。')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(root.hasAttribute('data-voice-gate-hold')).toBe(true)
+    FakeEventSource.last!.emit('error', { id: 'u3', text: '合成失败。', error: 'custom HTTP 502' })
+    expect(root.hasAttribute('data-voice-gate-hold')).toBe(false)
+    expect(gate.holding).toBe(false)
+  })
+
   it('stays bypassed when the status endpoint is absent (dsh-tts not composed)', async () => {
     // No status means no audio can ever arrive: holding every paragraph for
     // the timeout would flash text in late. The gate only holds when the
