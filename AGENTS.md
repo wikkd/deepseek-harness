@@ -56,6 +56,7 @@ packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   context/              request context
   subagent/             delegated agents
   jobs/                 background jobs
+  memory/               long-term memory
   bundle/               profile bundles
   workflow/             workflow execution
   webhook/              webhook ingress

@@ -678,6 +678,26 @@ export type ThemePreference = typeof THEME_PREFERENCES[number]
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-theme -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-workspace -->
+<a id="deepseek-aidsh-client-ui-workspace"></a>
+
+## `@deepseek-ai/dsh-client-ui-workspace`
+
+- `source`: [`packages/client/ui-workspace/src/config.ts:8`](../packages/client/ui-workspace/src/config.ts)
+
+```ts config-catalog
+/** Sidebar presentation for deployments that hide directories from the operator. */
+export interface Config {
+  /**
+   * `workspaces` keeps the workspace tree, picker, and add/rename actions.
+   * `conversations` shows one flat Session list and removes workspace chrome
+   * from the sidebar and the conversation hero.
+   */
+  sidebar: 'workspaces' | 'conversations'
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-workspace -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-compaction-basic -->
 <a id="deepseek-aidsh-compaction-basic"></a>
 
@@ -1337,6 +1357,17 @@ export interface Config {
   apiStartupTimeoutMs?: number
   /** Fetch timeout for one synthesis request. */
   requestTimeoutMs?: number
+  /**
+   * Maximum clauses synthesized together per GPT-SoVITS batch. The engine
+   * splits text at punctuation (`cut5`); `1` keeps serial synthesis, higher
+   * values trade VRAM for lower multi-clause latency.
+   */
+  batchSize?: number
+  /**
+   * Synthesize one short line as soon as a spawned api_v2 answers, so its
+   * weights load during profile boot instead of inside the first reply.
+   */
+  warmup?: boolean
   /** Voice used when a request names no profile or an unknown one. */
   defaultVoice?: string
   /** Cloned-voice profiles served by the bridge. */
@@ -2267,6 +2298,25 @@ export interface ReconnectConfig {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-mcp-client -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-memory-local -->
+<a id="deepseek-aidsh-memory-local"></a>
+
+## `@deepseek-ai/dsh-memory-local`
+
+- `inject`: `storageDomain`
+- `source`: [`packages/memory/memory-local/src/index.ts:31`](../packages/memory/memory-local/src/index.ts)
+
+```ts config-catalog
+/** Deployment bounds for the local memory store. */
+export interface Config {
+  /** Maximum number of retained entries; the oldest write is refused once full. */
+  maxEntries?: number
+  /** Maximum trimmed length of one entry in UTF-16 code units. */
+  maxEntryChars?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-memory-local -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-message-feedback -->
 <a id="deepseek-aidsh-message-feedback"></a>
 
@@ -2405,6 +2455,25 @@ export interface Config {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-persona -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-persona-xiaoyuan -->
+<a id="deepseek-aidsh-persona-xiaoyuan"></a>
+
+## `@deepseek-ai/dsh-persona-xiaoyuan`
+
+- `inject`: `systemPrompt`
+- `source`: [`packages/preset/persona-xiaoyuan/src/index.ts:30`](../packages/preset/persona-xiaoyuan/src/index.ts)
+
+```ts config-catalog
+/** Plugin config: the identity line and the names that mark a persona as already identified. */
+export interface Config {
+  /** Line prepended to a persona that contains none of {@link Config.names}. */
+  identity: string
+  /** Names that mark a persona as already carrying the product identity. */
+  names: string[]
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-persona-xiaoyuan -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-plan-mode -->
 <a id="deepseek-aidsh-plan-mode"></a>
@@ -3499,7 +3568,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-system-prompt`
 
-- `source`: [`packages/core/system-prompt/src/index.ts:247`](../packages/core/system-prompt/src/index.ts)
+- `source`: [`packages/core/system-prompt/src/index.ts:248`](../packages/core/system-prompt/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: the deployment-authored fragment of the system prompt (see {@link Config.personaPrefix} for its contract). */
@@ -3843,6 +3912,25 @@ export interface Config {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-lsp -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-memory -->
+<a id="deepseek-aidsh-tool-memory"></a>
+
+## `@deepseek-ai/dsh-tool-memory`
+
+- `inject`: `memory` · `systemPrompt` · `tools`
+- `source`: [`packages/memory/tool-memory/src/index.ts:27`](../packages/memory/tool-memory/src/index.ts)
+
+```ts config-catalog
+/** Deployment bounds for the model-visible memory surface. */
+export interface Config {
+  /** Maximum entries listed in the system prompt. */
+  maxPromptEntries?: number
+  /** Maximum characters in the system prompt section. */
+  maxPromptChars?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-memory -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-tool-present -->
 <a id="deepseek-aidsh-tool-present"></a>
@@ -4558,6 +4646,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-client-ui-settings` | — | [`packages/client/ui-settings/src/index.ts`](../packages/client/ui-settings/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-agent-loop` | — | [`packages/client/ui-settings-agent-loop/src/index.ts`](../packages/client/ui-settings-agent-loop/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-general` | — | [`packages/client/ui-settings-general/src/index.ts`](../packages/client/ui-settings-general/src/index.ts) |
+| `@deepseek-ai/dsh-client-ui-settings-memory` | — | [`packages/client/ui-settings-memory/src/index.ts`](../packages/client/ui-settings-memory/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-plugin-inventory` | — | [`packages/client/ui-settings-plugin-inventory/src/index.ts`](../packages/client/ui-settings-plugin-inventory/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-plugins` | — | [`packages/client/ui-settings-plugins/src/index.ts`](../packages/client/ui-settings-plugins/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-session-log` | — | [`packages/client/ui-settings-session-log/src/index.ts`](../packages/client/ui-settings-session-log/src/index.ts) |
@@ -4577,7 +4666,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-client-ui-user-questions` | — | [`packages/client/ui-user-questions/src/index.ts`](../packages/client/ui-user-questions/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-voice-gate` | — | [`packages/client/ui-voice-gate/src/index.ts`](../packages/client/ui-voice-gate/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-workflow-run` | — | [`packages/client/ui-workflow-run/src/index.ts`](../packages/client/ui-workflow-run/src/index.ts) |
-| `@deepseek-ai/dsh-client-ui-workspace` | — | [`packages/client/ui-workspace/src/index.ts`](../packages/client/ui-workspace/src/index.ts) |
 | `@deepseek-ai/dsh-command-compact` | `commands` · `compaction` | [`packages/compaction/command-compact/src/index.ts`](../packages/compaction/command-compact/src/index.ts) |
 | `@deepseek-ai/dsh-command-feedback` | `commands` | [`packages/feedback/command-feedback/src/index.ts`](../packages/feedback/command-feedback/src/index.ts) |
 | `@deepseek-ai/dsh-command-goal` | `commands` · `goals` | [`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts) |
@@ -4685,6 +4773,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 | `@deepseek-ai/dsh-llm-deepseek` | — | [`packages/llm/llm-deepseek/src/index.ts`](../packages/llm/llm-deepseek/src/index.ts) |
 | `@deepseek-ai/dsh-llm-mock-server` | — | [`packages/test-support/llm-mock-server/src/index.ts`](../packages/test-support/llm-mock-server/src/index.ts) |
 | `@deepseek-ai/dsh-loader-smoke` | — | [`packages/test-support/loader-smoke/src/index.ts`](../packages/test-support/loader-smoke/src/index.ts) |
+| `@deepseek-ai/dsh-memory` | — | [`packages/memory/memory/src/index.ts`](../packages/memory/memory/src/index.ts) |
 | `@deepseek-ai/dsh-native-command` | — | [`packages/util/native-command/src/index.ts`](../packages/util/native-command/src/index.ts) |
 | `@deepseek-ai/dsh-output-retention` | — | [`packages/util/output-retention/src/index.ts`](../packages/util/output-retention/src/index.ts) |
 | `@deepseek-ai/dsh-package-manifest` | — | [`packages/util/package-manifest/src/index.ts`](../packages/util/package-manifest/src/index.ts) |
